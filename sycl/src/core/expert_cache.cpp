@@ -71,12 +71,13 @@ static unsigned long long own_drm_local_bytes() {
 #include <dxgi1_4.h>
 // #1549: this process's dedicated VRAM use and the OS's budget for it.  The OpenCL backend has no
 // free-VRAM query at all - `ext_intel_free_memory` needs Level Zero sysman, which this driver does not
-// expose - so `get_memory_info` answers from STRATA_DEVICE_FREE_MIB, a setup-time constant that cannot
-// see what is already resident.  DXGI can: its figures are live, and the budget is the OS's share for
-// this process, so whatever else holds the card (the display compositor, the browser) is already out of
-// it.  `sycl/probe/vram_pressure.cpp` measures both: the process's figure tracks an allocation exactly
-// (0.07 -> 28.07 GiB for a 28 GiB fill) where dpct's gives 0.00 and an error.  Returns false and leaves
-// both at 0 when there is no adapter or the query fails.  STRATA_DXGI_FREE=0 takes the old path.
+// expose, so `get_memory_info` answers 0, which would size the cache to nothing.  DXGI can: its
+// figures are live, and the budget is the OS's share for this process, so whatever else holds the card
+// (the display compositor, the browser) is already out of it.  `sycl/probe/vram_pressure.cpp` measures
+// both: the process's figure tracks an allocation exactly (0.07 -> 28.07 GiB for a 28 GiB fill) where
+// dpct's gives 0.00 and an error.  Returns false and leaves both at 0 when there is no adapter or the
+// query fails, in which case device_free_bytes falls back to the backend's own (zero) figure.
+// STRATA_DXGI_FREE=0 takes the old path.
 bool own_gpu_local(uint64_t& own, uint64_t& budget) {
     static const bool off = [] { const char* v = std::getenv("STRATA_DXGI_FREE"); return v && v[0] == '0'; }();
     if (off) return false;
