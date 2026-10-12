@@ -89,6 +89,9 @@ namespace strata::prefill { void set_nonresident_share(double share); }   // SYC
 #include <windows.h>
 #include <psapi.h>
 #include <io.h>
+#ifdef small
+#undef small
+#endif
 #else
 #include <unistd.h>
 #include <cerrno>
@@ -101,6 +104,7 @@ namespace strata::prefill { void set_nonresident_share(double share); }   // SYC
 #include <algorithm>
 #include <memory>
 #include <iostream>
+#include <iomanip>
 #include <functional>
 #include <future>
 #include <thread>
@@ -1625,6 +1629,29 @@ static double ple_direct_rows_per_s(strata::kernels::PleTable& t) {
 }
 
 int main(int argc, char **argv) try {
+#ifdef _WIN32
+    if (argc == 2 && std::string(argv[1]) == "--list-devices") {
+        std::cout << '[';
+        bool first = true;
+        for (unsigned i = 0; i < dpct::device_count(); ++i) {
+            const auto& d = dpct::get_device(i);
+            if (!d.is_gpu() || d.get_info<sycl::info::device::vendor_id>() != 0x8086) continue;
+            if (!first) std::cout << ',';
+            first = false;
+            std::cout << "{\"index\":" << i << ",\"name\":" << std::quoted(d.get_info<sycl::info::device::name>())
+                      << ",\"vram_gb\":" << static_cast<double>(d.get_info<sycl::info::device::global_mem_size>()) / (1ull << 30)
+                      << ",\"arch\":\"sycl\",\"driver\":\"level_zero\"";
+#if defined(SYCL_EXT_INTEL_DEVICE_INFO) && SYCL_EXT_INTEL_DEVICE_INFO >= 6
+            if (d.has(sycl::aspect::ext_intel_device_id))
+                std::cout << ",\"devid\":\"" << std::hex << d.get_info<sycl::ext::intel::info::device::device_id>()
+                          << std::dec << '"';
+#endif
+            std::cout << '}';
+        }
+        std::cout << "]\n";
+        return first ? 1 : 0;
+    }
+#endif
     // **UNBUFFERED, BECAUSE THE INTERESTING OUTPUT IS THE OUTPUT BEFORE A CRASH.**  `stdout` redirected to a
     // pipe or a file is block-buffered, so a program that dies loses every line it had already printed - which
     // turns "it crashed at step 7" into "it crashed somewhere", and the difference is a debugging session.
@@ -4690,7 +4717,12 @@ int main(int argc, char **argv) try {
                                     const Fill& g2 = (*fl)[j];
                                     if (!gguf_src.read_into(g2.l, g2.e, other.data(), blob_cap)) continue;
                                     const size_t nb2 = (size_t) lay.blob_bytes(g2.l);
+#ifdef _WIN32
+                                    const uint8_t* found = std::search(other.data(), other.data() + nb2, probe, probe + 64);
+                                    const void* hit = found == other.data() + nb2 ? nullptr : found;
+#else
                                     const void* hit = memmem(other.data(), nb2, probe, 64);
+#endif
                                     if (hit != nullptr)
                                         std::fprintf(stderr, "    the wrong data at byte %zu is expert (layer %d, expert %d), slot %d (fill %zu), byte %zu of its blob\n",
                                                      fd + 4096, (int) g2.l, (int) g2.e, (int) g2.slot, j, (size_t) ((const uint8_t*) hit - other.data()));
@@ -4803,12 +4835,18 @@ int main(int argc, char **argv) try {
             }
         }
         uint64_t avail = 0;
+#ifdef _WIN32
+        MEMORYSTATUSEX mem{};
+        mem.dwLength = sizeof mem;
+        if (GlobalMemoryStatusEx(&mem)) avail = mem.ullAvailPhys;
+#else
         if (FILE* f = std::fopen("/proc/meminfo", "r")) {
             char key[64]; unsigned long long kb = 0;
             while (std::fscanf(f, "%63s %llu kB", key, &kb) == 2)
                 if (std::strcmp(key, "MemAvailable:") == 0) { avail = kb << 10; break; }
             std::fclose(f);
         }
+#endif
         const char* mv = std::getenv("STRATA_MIRROR_MIB");
         const uint64_t cap = mv ? (uint64_t) std::atoll(mv) << 20 : (avail > (4ull << 30) ? avail - (4ull << 30) : 0);
         if (!miss.empty() && cap > 0) {
