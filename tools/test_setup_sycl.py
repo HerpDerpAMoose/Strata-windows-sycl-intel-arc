@@ -333,12 +333,25 @@ class ToSycl(unittest.TestCase):
     def test_windows_gpu_probe_uses_native_executable(self):
         m = self.mod()
         exe = m.ROOT / "build-sycl-win" / "strata.exe"
-        result = mock.Mock(returncode=0, stdout='[{"index":0,"name":"Arc","vram_gb":32}]', stderr="")
+        result = mock.Mock(returncode=0, stdout='[{"index":0,"name":"Arc","vram_gb":32,"driver":"level_zero","free_memory_supported":true,"command_graph_supported":true}]', stderr="")
         with mock.patch.object(m.S, "WIN", True), mock.patch.object(m, "sycl_engine", return_value=(exe, None)), \
                 mock.patch.object(m.subprocess, "run", return_value=result) as probe:
             cards = m.intel_gpus()
         self.assertEqual(cards[0]["vram_gb"], 32)
         self.assertEqual(probe.call_args.args[0], [str(exe), "--list-devices"])
+
+    def test_windows_runtime_search_includes_tcm_dependencies(self):
+        m = self.mod()
+        with tempfile.TemporaryDirectory() as d:
+            oneapi = Path(d)
+            compiler = oneapi / "compiler" / "latest" / "bin"
+            tcm = oneapi / "tcm" / "latest" / "bin"
+            compiler.mkdir(parents=True)
+            tcm.mkdir(parents=True)
+            with mock.patch.dict("os.environ", {"ONEAPI_ROOT": d, "LOCALAPPDATA": d}, clear=True), \
+                    mock.patch.object(m.shutil, "which", return_value=None):
+                dirs = m.sycl_runtime_dirs()
+            self.assertEqual(dirs, [str(compiler), str(tcm)])
 
     def test_windows_config_pins_selected_gpu_and_preserves_explicit_selector(self):
         m = self.mod()
@@ -358,7 +371,7 @@ class ToSycl(unittest.TestCase):
     def test_windows_native_probe_retains_a_series_id_for_fp64_emulation(self):
         m = self.mod()
         exe = m.ROOT / "build-sycl-win" / "strata.exe"
-        result = mock.Mock(returncode=0, stdout='[{"index":0,"name":"Arc A770","vram_gb":16,"driver":"level_zero","devid":"56a0"}]', stderr="")
+        result = mock.Mock(returncode=0, stdout='[{"index":0,"name":"Arc A770","vram_gb":16,"driver":"level_zero","devid":"56a0","free_memory_supported":true,"command_graph_supported":true}]', stderr="")
         with mock.patch.object(m.S, "WIN", True), mock.patch.object(m, "sycl_engine", return_value=(exe, None)), \
                 mock.patch.object(m.subprocess, "run", return_value=result), \
                 mock.patch.object(m, "sycl_runtime_dirs", return_value=[]):
@@ -378,6 +391,39 @@ class ToSycl(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 m.intel_gpus()
 
+    def test_windows_gpu_probe_rejects_unsupported_backends_and_capabilities(self):
+        m = self.mod()
+        valid = {"index": 0, "name": "Arc", "vram_gb": 32, "driver": "level_zero",
+                 "free_memory_supported": True, "command_graph_supported": True}
+        cases = [({"driver": "opencl"}, "requires Level Zero"),
+                 ({"driver": "unknown"}, "requires Level Zero"),
+                 ({"free_memory_supported": False}, "free VRAM query is unavailable"),
+                 ({"command_graph_supported": False}, "command graphs are unavailable"),
+                 ({"free_memory_supported": None}, "free VRAM query is unavailable")]
+        for fields, message in cases:
+            with self.subTest(fields=fields):
+                result = mock.Mock(returncode=0, stdout=json.dumps([{**valid, **fields}]), stderr="")
+                out = io.StringIO()
+                with mock.patch.object(m.S, "WIN", True), \
+                        mock.patch.object(m, "sycl_engine", return_value=(Path("strata.exe"), None)), \
+                        mock.patch.object(m.subprocess, "run", return_value=result), \
+                        mock.patch.dict("os.environ", {"ONEAPI_DEVICE_SELECTOR": "opencl:gpu"}), \
+                        contextlib.redirect_stdout(out):
+                    with self.assertRaises(SystemExit):
+                        m.intel_gpus()
+                self.assertIn(message, out.getvalue())
+
+    def test_windows_gpu_probe_rejects_old_engine_without_capability_fields(self):
+        m = self.mod()
+        result = mock.Mock(returncode=0, stdout='[{"index":0,"driver":"level_zero"}]', stderr="")
+        out = io.StringIO()
+        with mock.patch.object(m.S, "WIN", True), \
+                mock.patch.object(m, "sycl_engine", return_value=(Path("strata.exe"), None)), \
+                mock.patch.object(m.subprocess, "run", return_value=result), contextlib.redirect_stdout(out):
+            with self.assertRaises(SystemExit):
+                m.intel_gpus()
+        self.assertIn("rebuild the native engine", out.getvalue())
+
     def test_windows_display_detection_does_not_need_an_engine(self):
         m = self.mod()
         adapters = [{"name": "Arc B70", "pnp": r"PCI\VEN_8086&DEV_E223", "ram": 4 * 2**30},
@@ -389,6 +435,7 @@ class ToSycl(unittest.TestCase):
         self.assertEqual(len(cards), 1)
         self.assertEqual(cards[0]["vram_gb"], 32)
         self.assertEqual(cards[0]["devid"], "e223")
+        self.assertEqual(cards[0]["driver"], "unknown")
         with mock.patch.object(m.S, "WIN", True), mock.patch.object(m, "sycl_engine", return_value=(None, "missing")), \
                 mock.patch.object(m, "intel_gpus_windows", return_value=cards):
             self.assertEqual(m.intel_gpus(), cards)

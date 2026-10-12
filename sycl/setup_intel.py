@@ -76,7 +76,7 @@ def intel_gpus_windows(adapters=None, registry=None):
                 vram = mem / 2**30
             break
         found.append({"index": len(found), "name": ad.get("name") or f"Intel {name}", "vram_gb": vram,
-                      "arch": "sycl", "driver": "level_zero", "devid": devid})
+                      "arch": "sycl", "driver": "unknown", "devid": devid})
     return found
 
 
@@ -111,7 +111,18 @@ def intel_gpus():
             if result.returncode:
                 S.fail(f"native SYCL GPU probe failed ({result.returncode}): {result.stderr.strip()}",
                        "check the Intel GPU driver and oneAPI runtime; docs/INTEL_ARC.md")
-            return json.loads(result.stdout)
+            cards = json.loads(result.stdout)
+            for card in cards:
+                if card.get("driver") != "level_zero":
+                    S.fail(f"native Windows inference requires Level Zero, not {card.get('driver', 'unknown')}",
+                           "set ONEAPI_DEVICE_SELECTOR=level_zero:gpu and check the Intel GPU driver and oneAPI runtime")
+                if card.get("free_memory_supported") is not True:
+                    S.fail("native Intel GPU free VRAM query is unavailable (ext_intel_free_memory)",
+                           "rebuild the native engine and check the Intel GPU driver and oneAPI runtime")
+                if card.get("command_graph_supported") is not True:
+                    S.fail("native Intel GPU command graphs are unavailable (ext_oneapi_graph)",
+                           "rebuild the native engine and check the Intel GPU driver and oneAPI runtime")
+            return cards
         except (OSError, ValueError, subprocess.TimeoutExpired) as ex:
             S.fail(f"cannot query the native SYCL engine: {ex}", "docs/INTEL_ARC.md")
     found = []
@@ -169,7 +180,7 @@ def sycl_runtime_dirs():
         dirs.append(str(Path(os.environ["MKLROOT"]) / "bin"))
     oneapi = Path(os.environ.get("ONEAPI_ROOT", r"C:\Program Files (x86)\Intel\oneAPI"))
     dirs += [str(oneapi / "compiler" / "latest" / "bin"), str(oneapi / "mkl" / "latest" / "bin"),
-             str(oneapi / "tbb" / "latest" / "bin"),
+             str(oneapi / "tbb" / "latest" / "bin"), str(oneapi / "tcm" / "latest" / "bin"),
              str(Path(os.environ.get("LOCALAPPDATA", "")) / "Strata-tools" / "oneapi" / "Library" / "bin")]
     return list(dict.fromkeys(p for p in dirs if p and Path(p).is_dir()))
 

@@ -1640,7 +1640,11 @@ int main(int argc, char **argv) try {
             first = false;
             std::cout << "{\"index\":" << i << ",\"name\":" << std::quoted(d.get_info<sycl::info::device::name>())
                       << ",\"vram_gb\":" << static_cast<double>(d.get_info<sycl::info::device::global_mem_size>()) / (1ull << 30)
-                      << ",\"arch\":\"sycl\",\"driver\":\"level_zero\"";
+                      << ",\"arch\":\"sycl\",\"driver\":"
+                      << std::quoted(d.get_backend() == sycl::backend::ext_oneapi_level_zero ? "level_zero"
+                                     : d.get_backend() == sycl::backend::opencl ? "opencl" : "unknown")
+                      << ",\"free_memory_supported\":" << (d.has(sycl::aspect::ext_intel_free_memory) ? "true" : "false")
+                      << ",\"command_graph_supported\":" << (d.has(sycl::aspect::ext_oneapi_graph) ? "true" : "false");
 #if defined(SYCL_EXT_INTEL_DEVICE_INFO) && SYCL_EXT_INTEL_DEVICE_INFO >= 6
             if (d.has(sycl::aspect::ext_intel_device_id))
                 std::cout << ",\"devid\":\"" << std::hex << d.get_info<sycl::ext::intel::info::device::device_id>()
@@ -1994,6 +1998,23 @@ int main(int argc, char **argv) try {
         }
         }
     }
+#ifdef _WIN32
+    {
+        const auto& d = dpct::get_current_device();
+        if (!d.is_gpu() || d.get_backend() != sycl::backend::ext_oneapi_level_zero) {
+            std::fprintf(stderr, "strata generate: native Windows inference requires a Level Zero GPU; set ONEAPI_DEVICE_SELECTOR=level_zero:gpu\n");
+            return 2;
+        }
+        if (!d.has(sycl::aspect::ext_intel_free_memory)) {
+            std::fprintf(stderr, "strata generate: free VRAM query is unavailable (ext_intel_free_memory); check the Intel GPU driver and oneAPI runtime\n");
+            return 2;
+        }
+        if (!d.has(sycl::aspect::ext_oneapi_graph)) {
+            std::fprintf(stderr, "strata generate: command graphs are unavailable (ext_oneapi_graph); check the Intel GPU driver and oneAPI runtime\n");
+            return 2;
+        }
+    }
+#endif
 #if defined(STRATA_USE_HIP)
     {   // gfx1151 (Strix Halo): the switches that are exact there are on by default (strata/core/arch_defaults.hpp); before
         // any engine code reads its switches (they are read at first use), and the user's own settings are kept
