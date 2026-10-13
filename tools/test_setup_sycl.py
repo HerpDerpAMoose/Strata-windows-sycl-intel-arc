@@ -150,6 +150,24 @@ class NativeStart(unittest.TestCase):
             self.assertIsNone(setup.auto_sycl_setup([], [], []))
         handoff.assert_not_called()
 
+    def test_windows_engine_step_keeps_native_sycl_build_route(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as d:
+            eng = Path(d)
+            (eng / "BUILD.json").write_text(json.dumps({"version": "0.1.44", "source": "local"}), encoding="utf-8")
+            gpu = {"arch": "sycl", "index": 0, "count": 1}
+            args = SimpleNamespace(build=True, prebuilt=None, gpu=None)
+            with mock.patch.object(setup, "WIN", True), \
+                    mock.patch.object(setup, "get_llama_cpp", return_value=eng), \
+                    mock.patch.object(setup, "get_prebuilt_hip", return_value=eng) as native, \
+                    mock.patch.object(setup, "hip_card", return_value=gpu), \
+                    mock.patch.object(setup, "hip_lib_dirs", return_value=[]), \
+                    mock.patch.object(setup, "build_engine_hip", side_effect=AssertionError("AMD build")), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                result = setup.engine_step(args, gpu, True, [gpu], 13, "none")
+            native.assert_called_once_with(None, gpu)
+            self.assertEqual(result[1], eng)
+
     def test_windows_starts_intel_server_without_cuda_checks(self):
         with tempfile.TemporaryDirectory() as d:
             cfg_path = Path(d) / "strata-test.json"
@@ -306,6 +324,16 @@ class ToSycl(unittest.TestCase):
         self.assertEqual(c["args"][c["args"].index("--vram-reserve-mib") + 1], "300")
         self.assertEqual(c["env"]["STRATA_VERIFY_NO_HOST"], "0")
         self.assertEqual(c["env"]["STRATA_SYCL_BIN"], "build-sycl/strata")
+
+    def test_split_short_rule(self):
+        # #1980: 2x B60 24 GB - IQ3_XXS (42.9 GB) was refused under NO_HOST=1, IQ2_XS (35.5 GB) loads fully
+        m = self.mod()
+        self.assertTrue(m.split_likely_short(42.9, [24.0, 24.0]))
+        self.assertFalse(m.split_likely_short(35.5, [24.0, 24.0]))
+        self.assertFalse(m.split_likely_short(50.3, [32.0, 32.0]))   # IQ3_S on 2x B70: 79%
+        self.assertTrue(m.split_likely_short(77.0, [32.0, 32.0]))
+        self.assertFalse(m.split_likely_short(0, [24.0]))
+        self.assertFalse(m.split_likely_short(40.0, []))
 
     def test_small_card_rule(self):
         m = self.mod()
