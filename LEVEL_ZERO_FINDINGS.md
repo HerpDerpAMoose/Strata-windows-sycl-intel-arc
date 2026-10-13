@@ -7,17 +7,37 @@ Machine: Arc Pro B70 32 GB, Windows 11 24H2, conda `strata-sycl-261`
 
 ## TL;DR for the next person
 
-1. **Level Zero on this card was never broken.** The driver was fine; the *driver version* was the
-   problem, and the fix was a graphics-driver update to the generic Arc line (`32.0.101.9034`).
-   The Arc Pro line's newest (`32.0.101.8976`) does **not** expose Level Zero through any SYCL
-   adapter at all.
-2. **The Level Zero **v1** adapter is much better than v2 here**: decode +24%, graph capture 34x
-   faster. This contradicts PR #1940's reason for pinning v2 on.
-3. **A missing DLL list silently hid all of this.** `ur_adapter_level_zero.dll` imports `UMF.dll`
-   and `VCRUNTIME140*`, which `sycl/CMakeLists.txt` never stages beside `strata.exe`, so the UR
-   loader fell back to OpenCL with no diagnostic. This is the bug most worth reporting upstream.
-4. **Level Zero is faster but not yet safe as a default**: it stalls in the device-plan verify
-   window on the server request path. It is opt-in (`STRATA_SYCL_LEVEL_ZERO=1`) until that is fixed.
+1. **This machine runs the Intel *generic* Arc graphics driver, `32.0.101.9034` or newer — not the
+   Arc Pro one.** That is deliberate and it is the prerequisite for everything else below. The Arc Pro
+   line's newest build (`32.0.101.8976`) does not expose Level Zero through any SYCL adapter at all,
+   and 8976 is the newest build that line has. Full rationale, what it costs and how to go back:
+   [the graphics driver](#the-graphics-driver-why-the-generic-arc-line-and-not-arc-pro).
+2. **Level Zero on this card was never broken** — the Level Zero *driver* answered every direct API
+   call correctly on 8976 too. What changed between the two driver builds is the Level Zero ICD
+   (`ze_intel_gpu64.dll`) the driver ships; on 9034 the SYCL adapters can drive it and on 8976 they
+   cannot.
+3. **The v1 Level Zero adapter is much better than v2 here**: decode +24%, graph capture 34x faster.
+   This contradicts PR #1940's stated reason for pinning v2 on.
+4. **A missing DLL list silently hid all of this.** `ur_adapter_level_zero.dll` imports `UMF.dll` and
+   `VCRUNTIME140*`, which `sycl/CMakeLists.txt` never stages beside `strata.exe`, so the UR loader
+   fell back to OpenCL with no diagnostic at all. This is the bug most worth reporting upstream.
+5. **Command graphs on Level Zero stall the verify window**, so the engine must run the eager replay
+   there. See [the stall](#the-stall-found-it-is-sycl-command-graphs-on-level-zero). This is why
+   `STRATA_VERIFY_EAGER=1` is *set*, not unset, on Level Zero.
+6. The Level Zero win is **prefill, not decode**: 120.6 tok/s against OpenCL's 81.1, with oneMKL
+   refusing in every configuration tested.
+
+## Current configuration
+
+Level Zero is selected by `STRATA_SYCL_LEVEL_ZERO=1` in the server config
+(`strata-coder-iq1_m.json`); `sycl/serve/strata-sycl.bat` turns that into the five variables above.
+Unset it and the launcher falls back to the OpenCL path, which is intact and is still the default.
+
+```powershell
+(Get-CimInstance Win32_VideoController | ? Name -match 'Arc').DriverVersion   # 32.0.101.9034?
+& "$env:USERPROFILE\miniforge3\envs\strata-sycl-261\Library\bin\sycl-ls.exe" --ignore-device-selectors
+#   a [level_zero:gpu] line is what "working" looks like
+```
 
 ---
 
@@ -59,14 +79,18 @@ either.
 
 ### 3. The graphics driver was the answer
 
-Two driver lines exist for this card:
+Two driver lines exist for this card, and which one is installed decides whether Level Zero works at
+all. This is covered in full — with the evidence, what it costs and how to go back — in
+[the graphics driver](#the-graphics-driver-why-the-generic-arc-line-and-not-arc-pro). In short:
 
-| line | newest | exposes Level Zero? |
+| line | newest build | exposes Level Zero? |
 |---|---|---|
-| Intel Arc **Pro** | 32.0.101.8976 (Q3.26) | **no** |
-| Intel Arc (generic) | 32.0.101.9034 | **yes** |
+| Intel® Arc™ **Pro** | 32.0.101.8976 (Q3.26) | **no** |
+| Intel® Arc™ *generic* | 32.0.101.9034 | **yes** |
 
-Updating to the generic line's `32.0.101.9034` produced, for the first time:
+The Arc Pro line is the ISV-certified workstation driver and the "correct" one for an Arc Pro B70 —
+and 8976 is the newest build it has, so there was nothing to update to. The generic driver lists the
+Arc Pro B70 as supported explicitly. Moving to it produced, for the first time:
 
 ```
 [level_zero:gpu][level_zero:0] Intel(R) oneAPI Unified Runtime over Level-Zero V2,
@@ -75,8 +99,8 @@ Updating to the generic line's `32.0.101.9034` produced, for the first time:
 ```
 
 Both things that had forced the OpenCL workarounds are present: **the free-VRAM query** and
-**command graphs**. Installer: `%TEMP%\opencode\gfx_win_101.9034.exe`, SHA512 verified against
-Intel's published digest.
+**command graphs** (the latter then turned out to be the cause of the stall, so it is unused).
+Installer: `%TEMP%\opencode\gfx_win_101.9034.exe`, SHA512 verified against Intel's published digest.
 
 ### 4. A second, separate bug: the adapter's dependencies were never staged
 
@@ -182,28 +206,101 @@ same file.
 
 ## What the machine needs for Level Zero
 
+`sycl/serve/strata-sycl.bat` does all of this behind `STRATA_SYCL_LEVEL_ZERO=1`:
+
 ```powershell
-# 1. conda's Library\bin FIRST on PATH (the UR adapters' dependencies live there)
+$env:STRATA_SYCL_LEVEL_ZERO = "1"     # opt-in; without it, nothing below is set
+
+# conda's Library\bin FIRST on PATH - the UR adapters' dependencies (UMF.dll, VCRUNTIME140*) live there
 $c = "$env:USERPROFILE\miniforge3\envs\strata-sycl-261\Library\bin"
 $env:PATH = "$c;$env:PATH"
 
-# 2..4, and STRATA_VERIFY_EAGER must be UNSET
-$env:ONEAPI_DEVICE_SELECTOR    = "level_zero:0"
-$env:SYCL_UR_USE_LEVEL_ZERO_V2 = "0"      # v1, not v2: +24% decode, 34x faster graph capture
-$env:ZES_ENABLE_SYSMAN          = "1"      # makes ext_intel_free_memory answer
-
-# 5. a graphics driver on the GENERIC Arc line, 32.0.101.9034 or newer.
-#    The Arc Pro line's newest (8976) does not work.
+# the rest the launcher sets for you:
+$env:ONEAPI_DEVICE_SELECTOR    = "level_zero:0"   # v1 adapter beats v2 by +24% decode
+$env:SYCL_UR_USE_LEVEL_ZERO_V2 = "0"
+$env:ZES_ENABLE_SYSMAN          = "1"             # makes ext_intel_free_memory answer
+$env:STRATA_VERIFY_EAGER        = "1"             # NOT unset: command graphs stall the window
 ```
-
-`sycl/serve/strata-sycl.bat` does all of this behind `STRATA_SYCL_LEVEL_ZERO=1`, off by default.
 
 ---
 
-## What this retires, once the stall is fixed
+## The graphics driver: why the generic Arc line, and not Arc Pro
+
+**This machine must run the Intel *generic* Arc graphics driver, not the Arc Pro one.** That is a
+deliberate choice, not an accident, and it is the single prerequisite for everything above.
+
+| line | newest build | Level Zero exposed? |
+|---|---|---|
+| Intel® Arc™ **Pro** | 32.0.101.8976 (Q3.26) | **no** |
+| Intel® Arc™ *generic* | 32.0.101.9034 | **yes** |
+
+### The evidence, and why it is a driver *line* and not a bug
+
+The card is an Arc Pro B70, so the Arc Pro driver is the "correct" one — it is the ISV-certified
+workstation driver, and Intel's own page says corporate customers should always use it. It is also
+the *newest build available for the Arc Pro line*, so there is nothing to update to.
+
+The generic driver lists the Arc Pro B70 as a supported product explicitly, and with it installed
+`sycl-ls` reports, for the first time on this machine:
+
+```
+[level_zero:gpu][level_zero:0] Intel(R) oneAPI Unified Runtime over Level-Zero V2,
+    Intel(R) Arc(TM) Pro B70 Graphics 20.2.0 [1.17.39500+2]
+```
+
+What changed between the two is the **Level Zero ICD the driver ships** — `ze_intel_gpu64.dll`. On
+8976 the Level Zero driver answers every direct API call correctly (`zeInit`, `zeDriverGet`,
+`zeDeviceGet`, `zeDeviceGetProperties`: 1 driver, `TYPE_GPU`, `0x8086`/`0xe223`, 31.2 GiB) but no SYCL
+UR adapter can drive it; on 9034 the adapters can. So the Arc Pro build's ICD and the SYCL adapters
+are simply mismatched, and the generic build carries one they can use.
+
+### What you give up
+
+- **ISV certification for CAD/DCC applications** (SPECviewperf and friends). Irrelevant for LLM
+  inference; relevant if this machine is ever used for CAD.
+- The Arc Pro driver's own control panel features.
+- Intel's stated recommendation for corporate users.
+
+### What you get
+
+- Level Zero at all, which is the prerequisite for `ext_intel_free_memory` (a real free-VRAM query
+  instead of the DXGI workaround) and for the plain-SYCL fallback GEMM running ~49% faster on
+  prefill.
+- Measured: 120.6 tok/s prefill against OpenCL's 81.1.
+
+### How to check which one you are on, and how to go back
+
+```powershell
+# which line is installed
+(Get-CimInstance Win32_VideoController | ? Name -match 'Arc').DriverVersion
+#   32.0.101.8976 -> Arc Pro line, no Level Zero
+#   32.0.101.9034 -> generic line, Level Zero works
+
+# and confirm the engine can see it
+& "$env:USERPROFILE\miniforge3\envs\strata-sycl-261\Library\bin\sycl-ls.exe" --ignore-device-selectors
+#   a [level_zero:gpu] line is what you want
+```
+
+Going back is a normal install of the Arc Pro driver from
+[intel.com/content/www/us/en/download/741626](https://www.intel.com/content/www/us/en/download/741626/intel-arc-pro-graphics-windows.html)
+— 8976 is what this machine had. **What happens if you do:** Level Zero stops enumerating,
+`ONEAPI_DEVICE_SELECTOR=level_zero:0` kills the engine with `0xC0000409`, and `STRATA_SYCL_LEVEL_ZERO`
+must be unset so the launcher falls back to the OpenCL path. Nothing else is affected — the OpenCL
+path is intact and is still the default.
+
+Installer used here: `%TEMP%\opencode\gfx_win_101.9034.exe`, SHA512 verified against Intel's
+published digest. Downloaded from
+[intel.com/content/www/us/en/download/785597](https://www.intel.com/content/www/us/en/download/785597/intel-arc-iris-xe-graphics-windows.html).
+
+---
+
+## What this retires
 
 | workaround | retired by |
 |---|---|
-| `STRATA_VERIFY_EAGER` + the commit replay | `ext_oneapi_graph` now exists |
 | the plain-SYCL fallback GEMM | oneMKL, if BF16 turns out not to be the blocker |
 | the DXGI live free-VRAM figure | `ext_intel_free_memory` now exists; `device_free_bytes()` should then prefer the backend's answer over DXGI |
+
+`STRATA_VERIFY_EAGER` is deliberately **not** retired: command graphs are available, and they are
+exactly what stalls the verify window. So it stays on for Level Zero, and the commit replay it
+provides is load-bearing on this backend.
