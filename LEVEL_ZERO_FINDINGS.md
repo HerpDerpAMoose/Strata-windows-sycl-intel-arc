@@ -126,32 +126,46 @@ plain-SYCL fallback GEMM is itself faster on Level Zero than on OpenCL.
 
 ---
 
-## The stall, and exactly what it is not
+## The stall: found. It is SYCL command graphs on Level Zero
 
-The message, whichever way it is reached:
+Tested on the same card, driver 9034, `--mtp`, `--spec 4`, 262144 context, through the serve request
+path (which is the path that stalled).
 
-```
-verify window: waiting for the GPU to finish the window (flags A/B/M raised) for 60 s
-verify window: 4 tokens at position 84, host at layer step 1; the GPU rang 0
-              flags: served 0, plan (A) 0, copies (B) 0
-wrote the thread stacks to strata-stall-<pid>.dmp
-```
+| configuration | windows exercised | stalls? | decode |
+|---|---|---|---|
+| LZ, **graphs on** (eager off) | ~20 | **yes, at KV position ~84** | 74.5 tok/s (CLI) |
+| LZ, **graphs off** (eager on) | **1000+** | **no** | 63.3 tok/s (CLI) |
 
-Ruled out by direct measurement:
+The graph configuration stalls at *"waiting for the GPU to finish the window (flags A/B/M raised);
+the GPU rang 0; flags: served 0, plan (A) 0, copies (B) 0"* — reproducibly, at KV position ~84, i.e.
+about 20 windows into a request. The no-graph configuration served 35 requests and three 900-token
+generations (310 + 495 + 178 windows) without one.
 
-- **Not the launcher environment.** The same arguments through `strata-sycl.bat` with its full
-  environment complete 512 decode tokens cleanly at 74.5 tok/s.
-- **Not prompt length or token count.** A 2047-token prompt with 512 decode tokens is stable; the
-  server stalls on a 4-token window at KV position ~84.
-- **Not the driver-search variable or a stale ICD** (the remaining launcher difference; conda's
-  `Library\bin` holds an old `ze_intel_gpu64.dll` at 32.0.101.8976).
-- **Not `--mtp`** - removing it did not stop the server stall.
+So the doorbell flag the host polls is written by kernels running inside a **replayed command
+graph**, and on Level Zero the replay either does not execute them or does not make the write
+visible to the host's polling read. That is the whole bug, and it is not the device plan, the
+launcher, the adapter version, prompt length, or `--mtp` — all of which were ruled out by direct
+measurement earlier in this document.
 
-So the trigger is in what the **server request path** does differently: prompt-prefix reuse across
-requests, the serve protocol, or the accumulation of KV position over several requests. That is
-where to instrument next - which of flags A / B / M the GPU should raise, and whether it is
-written-but-invisible (a memory-ordering problem, Level Zero specific) or never written at all (a plan
-problem, which would not be).
+This also explains why PR #1940 pins `SYCL_UR_USE_LEVEL_ZERO_V2=1` *"for graph record and replay, no
+event leak per graph finalize"*: they are working in exactly this area. On this card the trade is the
+opposite one — v1 adapter, no graphs.
+
+**`strata-sycl.bat` therefore forces `STRATA_VERIFY_EAGER=1` whenever it selects Level Zero.** An
+explicit `STRATA_VERIFY_EAGER=0` in the environment is the only way back to the graph path, and it is
+a debug setting.
+
+### What it costs and what it buys
+
+| | OpenCL (eager) | LZ + eager | LZ + graphs |
+|---|---|---|---|
+| decode, CLI, 512 tok | 66.6 tok/s | **63.3 tok/s** | 74.5 tok/s (stalls) |
+| prefill, CLI | 81.1 tok/s | **120.6 tok/s** | 121.4 tok/s |
+| server, mixed requests | 38–60 tok/s | 50–65 tok/s | 58.6 tok/s (stalls) |
+
+Decode is a wash; **prefill is +49%**. The engine-level win is prefill, not decode, and the reason
+prefill improves is that the plain-SYCL fallback GEMM itself runs faster on Level Zero — oneMKL
+refuses in every configuration tested.
 
 ---
 

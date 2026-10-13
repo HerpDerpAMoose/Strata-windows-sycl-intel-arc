@@ -52,7 +52,18 @@ if not defined SYCL_UR_USE_LEVEL_ZERO_V2 set SYCL_UR_USE_LEVEL_ZERO_V2=0
 rem sysman: it is what makes ext_intel_free_memory answer, so the expert cache sizes itself from the
 rem card instead of a constant.  Harmless where there is no sysman.
 if not defined ZES_ENABLE_SYSMAN set ZES_ENABLE_SYSMAN=1
->&2 echo [strata-sycl] STRATA_SYCL_LEVEL_ZERO=1: Level Zero, v1 adapter, sysman on (LEVEL_ZERO_FINDINGS.md)
+rem NO COMMAND GRAPHS on Level Zero.  With them the verify window's doorbell flag is written by kernels
+rem running inside a replayed graph and the host polling for it never sees it: the engine stalls with
+rem "waiting for the GPU to finish the window; the GPU rang 0" at KV position ~84, which is ~20 windows
+rem into a request and reproducible every time.  With the eager replay (no graph, the window's body
+rem re-run on the queue) the same workload is stable: 1000+ windows over 35 requests with no stall,
+rem against the graph configuration stalling in under 20.
+rem The cost is real and small - decode 63.3 vs 74.5 tok/s in the CLI, and the graph capture (276 ms)
+rem is skipped - and the alternative is a server that stops answering.  So this is forced ON here, not
+rem left to the launcher's default: an explicit STRATA_VERIFY_EAGER=0 in the environment is the only way
+rem back to the graph path.
+set STRATA_VERIFY_EAGER=1
+>&2 echo [strata-sycl] STRATA_SYCL_LEVEL_ZERO=1: Level Zero, v1 adapter, sysman on, NO graphs (LEVEL_ZERO_FINDINGS.md)
 :lz_done
 rem No SYCL command graphs on the OpenCL backend (begin_recording fails: verify: begin capture failed):
 rem replay each window's body instead of its captured graph (slower per round, same tokens).  Level Zero
