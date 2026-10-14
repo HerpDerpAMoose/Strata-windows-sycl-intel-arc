@@ -271,6 +271,12 @@ target_link_libraries(strata PRIVATE strata_engine strata_prefill strata_spec)
 option(STRATA_SYCL_PARITY "Build the kernel parity tests" ON)
 if(STRATA_SYCL_PARITY)
   enable_testing()
+  # marcelloc's GGUF positioned-read test (#2079): the host-only regression net for the reader that
+  # GgufExpertSource shares with it (strata/positioned_file.hpp). No card, no model - only a sparse
+  # 4 GiB fixture - so it runs everywhere, Windows and Linux, next to the kernel parity tests.
+  add_executable(positioned_file_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/host/positioned_file_test.cpp)
+  target_link_libraries(positioned_file_test PRIVATE strata_includes Threads::Threads)
+  add_test(NAME positioned_file_test COMMAND positioned_file_test)
   foreach(p IN ITEMS dequant_s2 s2_gemv shared_expert gr gdn s2_gemv_q8 sampler rope quantize_act router_top10
                      s_gemv elementwise bf16_gemv s_gemv_q8k qsa kv_q8 kv_stream kv_q4 cvec)
     strata_resolve(_src src/kernels/${p}_parity.cpp)
