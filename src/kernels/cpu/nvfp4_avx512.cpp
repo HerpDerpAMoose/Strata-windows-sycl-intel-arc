@@ -28,7 +28,12 @@ struct Ue4m3Table {
         for (int x = 0; x < 256; ++x) {
             if (x == 0 || x == 0x7F) { v[x] = 0.0f; continue; }
             const int e = (x >> 3) & 0xF, m = x & 0x7;
-            const float raw = e == 0 ? std::ldexp((float) m, -9) : std::ldexp(1.0f + (float) m / 8.0f, e - 7);
+            const float raw = e == 0 ? (float) std::ldexp((double) m, -9) :
+                                         (float) std::ldexp(1.0 + (double) m / 8.0, e - 7);   // the double
+            // overload, not std::ldexp(float, int): on Windows that one binds to the ACRTIMP extern decl of
+            // ldexf, which ucrt.lib of some SDK revisions does not carry (the header's inline covers cl.exe only
+            // through its __MS_ intrinsic), and the SYCL link then dies on an unresolved __imp_ldexpf. The values
+            // are bit-identical either way: m/8, 1 + m/8 and the powers of two are all exact in double and in float.
             v[x] = raw * 0.5f;
         }
     }
