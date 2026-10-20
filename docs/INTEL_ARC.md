@@ -5,8 +5,10 @@ maxfridbe wrote it in [#423](https://github.com/Niko1221/Strata/pull/423), with 
 The code is in `sycl/`, and the port's own notes, measurements and maintenance procedure are in
 [docs/INTEL.md](INTEL.md). This page covers what you need, how to build it, and what has been tested.
 
-**Experimental means:** the Intel engine is still young and Linux only. When the port arrived (0.1.39) the maintainers had no
-Intel GPU and every result on Arc hardware came from the community. Since 0.1.40.2 the maintainers also test on an Arc Pro B70
+**Experimental means:** the Intel engine is still young. It runs on Linux, and this fork adds a native Windows build
+(see "Windows" below) that builds and whose setup path works; no model has been run on it yet in the measurements on
+this page. When the port arrived (0.1.39) the maintainers had no Intel GPU and every result on Arc hardware came from
+the community. Since 0.1.40.2 the maintainers also test on an Arc Pro B70
 (32 GB, `xe`) and an Arc A750 (8 GB, `i915`); the results from those two cards are marked in the table below. Other cards
 are still community reports. The NVIDIA and AMD engines are unchanged: the Intel build is a separate CMake target, off by default.
 
@@ -14,7 +16,8 @@ are still community reports. The NVIDIA and AMD engines are unchanged: the Intel
 use): you build it from source on Linux, as described below. The Docker route is a ready-made image,
 `ghcr.io/niko1221/strata:0.2.1-sycl`, which is published only for a release that carries a Linux Intel engine package; with none, [build
 the image yourself](DOCKER.md#build-it-yourself) from the engine you built (the image needs prepared model files; see
-[Docker: Intel Arc](DOCKER.md#intel-arc)). The Mac and Windows builds have no Intel engine.
+[Docker: Intel Arc](DOCKER.md#intel-arc)). The Mac build has no Intel engine; Windows builds one from source with
+`sycl\tools\build_windows.bat` (see "Windows" below).
 
 ## What has been run, and by whom
 
@@ -170,11 +173,45 @@ Things that matter on an Arc (details in INTEL.md):
 
 ## Windows
 
-There is no Windows path yet. `setup --backend sycl` on Windows stops and points here. oneAPI exists for Windows,
-but `sycl/CMakeLists.txt` uses GCC-style flags (`-mavx512f`, `-fp-model=precise`, `-qmkl`) and the runner is a
-bash/Docker script, so a native Windows build would need work. Nobody has tried it. WSL2 with an Arc has been
-used by one tester (the B580 row above), but setup cannot detect the card there, because it reads `/sys/class/drm`,
-which WSL2 does not have.
+Windows has a native path: no Docker, no WSL, no bash. `START-HERE.bat` finds an Intel Arc through the display
+registry and offers it beside NVIDIA / AMD when both are present, then hands the run to `sycl/setup_intel.py` as on
+Linux. The engine is `build-sycl-win\strata.exe`, which setup builds with `sycl\tools\build_windows.bat` when it is
+missing, and the run config carries the oneAPI runtime folders in `lib_dirs` instead of the container's `sycl_root`.
+The build uses MSVC and oneAPI (`icx` + oneMKL); SYCL's GCC-style flags are spelled for icx on Windows in
+`sycl/CMakeLists.txt` (`/fp:precise`, `/Qmkl:sequential`), and the few POSIX calls are behind `#ifdef _WIN32`.
+
+What has been run — measured on 2026-10-20 on Windows 11 25H2, Core i9-9900, Arc Pro B70 32 GB, driver 32.0.101.8976,
+oneAPI 2026.2, MSVC 14.51 (Visual Studio 18):
+
+- `sycl\tools\build_windows.bat`: the whole `sycl` project, 232 targets, 0 errors, 50 executables, among them
+  `strata.exe` (40 MB) and the kernel parity tests.
+- `positioned_file_test.exe`: PASS — 8 threads on one shared handle, an offset past 4 GiB, short reads, end of file,
+  an invalid handle, a missing file.
+- `python tools\test_setup_*.py`: all pass except `test_setup_golden.py` (19) and `test_setup_menu.py` (1), which fail
+  the same way on upstream main without the Windows work.
+
+**Check Level Zero first: the engine needs it.** The port's config asks for the free-VRAM query and command graphs,
+so `sycl/setup_intel.py` refuses a card that SYCL offers only through OpenCL. On the PC measured here Level Zero
+itself worked (`zeInit` and `zeInitDrivers` succeeded, one GPU device with the driver's API 1.15) while SYCL's Level
+Zero adapter reported no platform under oneAPI 2026.0, 2026.1 and 2026.2, with the classic adapter and the v2 adapter
+each run on its own, and the card was listed only as `[opencl:gpu]`; that is written up as a report for Intel, and
+it is the one
+thing that stopped a model from running there. `sycl-ls` is the check: a `[level_zero:gpu]` line for the card means
+the engine will run, an `[opencl:gpu]` line on its own means it will not.
+
+**If the engine dies with `0xC0000005` at startup, look at `C:\Windows\System32\ze_loader.dll`.** Windows keeps one
+Level Zero loader there and every process uses it. A graphics driver installed from a manual extraction can leave an
+old one behind (1.2.3, 2021, in the case measured here) while the driver ships its own beside `ze_intel_gpu64.dll` in
+the DriverStore (1.32.0, the same driver that ships `ze_intel_gpu64.dll` 32.0.101.8976). The old loader has no
+`zeInitDrivers`, which the 2026 SYCL runtime asks for, so the runtime crashes instead of reporting no device. Compare
+the two `FileVersion`s; replacing the System32 copy with the driver's needs an administrator, and the file is owned by
+`TrustedInstaller` and usually mapped by Intel Graphics Software, so it has to be renamed aside rather than
+overwritten. `sycl-ls` stops crashing with the driver's loader in place.
+
+What has **not** been run on Windows: a model (Level Zero, above), pictures, the Arc A-series (Windows uses Level Zero
+for every Arc, `i915` is a Linux driver), two cards, and the Docker path. WSL2 with an Arc has been used by one tester
+(the B580 row above), but setup cannot detect the card there, because it reads `/sys/class/drm`, which WSL2 does not
+have.
 
 ## Reporting a problem
 
