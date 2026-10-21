@@ -6,9 +6,9 @@ The code is in `sycl/`, and the port's own notes, measurements and maintenance p
 [docs/INTEL.md](INTEL.md). This page covers what you need, how to build it, and what has been tested.
 
 **Experimental means:** the Intel engine is still young. It runs on Linux, and this fork adds a native Windows build
-(see "Windows" below) that builds and whose setup path works; no model has been run on it yet in the measurements on
-this page. When the port arrived (0.1.39) the maintainers had no Intel GPU and every result on Arc hardware came from
-the community. Since 0.1.40.2 the maintainers also test on an Arc Pro B70
+(see "Windows" below) that builds and whose setup path works; Coder IQ1_M and IQ3_XXS have been run on an Arc Pro B70
+through Level Zero, with the numbers below. When the port arrived (0.1.39) the maintainers had no Intel GPU and every
+result on Arc hardware came from the community. Since 0.1.40.2 the maintainers also test on an Arc Pro B70
 (32 GB, `xe`) and an Arc A750 (8 GB, `i915`); the results from those two cards are marked in the table below. Other cards
 are still community reports. The NVIDIA and AMD engines are unchanged: the Intel build is a separate CMake target, off by default.
 
