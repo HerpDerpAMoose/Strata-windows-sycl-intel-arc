@@ -193,9 +193,15 @@ oneAPI 2026.2, MSVC 14.51 (Visual Studio 18):
   58 s from a cold start), `tools/strata_bench.py`, 3 runs per test, medians: chat decode 51.3 tok/s (34.1-66.6),
   first token 0.45 s; a 4K prompt 1,451 tok/s, first token 2.81 s; a 16K prompt 1,407 tok/s, first token 11.47 s; an
   agent session 57.7 tok/s decode (26.8-74.4), 69.3% of each turn's prompt read from the conversation cache. The
-  Linux B70 row for the same model is 70-78 tok/s decode and ~790 tok/s prompt, so on Windows prompt reading is ahead
-  and decode is behind. This PC is a Core i9-9900 with 64 GB of RAM and the JIT build (`STRATA_SYCL_AOT` not set); the
-  32K prompt test skipped itself because the context is exactly 32,768 tokens.
+  Linux B70 row for the same model is 70-78 tok/s decode and ~790 tok/s prompt: prompt reading is clearly ahead on
+  Windows, and decode depends heavily on the question mix (see the next line). This PC is a Core i9-9900 with 64 GB
+  of RAM and the JIT build (`STRATA_SYCL_AOT` not set); the 32K prompt test skipped itself because the context is
+  exactly 32,768 tokens.
+- Two follow-ups on that decode figure. The AOT build (`STRATA_SYCL_AOT=bmg-g31`, built beside the JIT one) measured
+  the same (chat 50.0 vs 51.3 tok/s, 4K prompt 1,394 vs 1,451, agent decode 61.4 vs 57.7: within run-to-run noise), so
+  JIT is not what the decode number is about. And the chat median moves with the questions asked: a fixed nine-question
+  set (three prompts, three rounds) gave 66.0 tok/s (56.6-70.5) on the same server, which overlaps the Linux figure.
+  `--spec 2` instead of 4 gave 56.3 tok/s on those nine, so the default T=4 is the better setting here.
 
 **Check Level Zero first: the engine needs it.** The port's config asks for the free-VRAM query and command graphs,
 so `sycl/setup_intel.py` refuses a card that SYCL offers only through OpenCL. `sycl-ls` is the check: a
