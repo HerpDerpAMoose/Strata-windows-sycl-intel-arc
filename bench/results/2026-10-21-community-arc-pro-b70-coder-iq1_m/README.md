@@ -7,7 +7,7 @@ Measured on 2026-10-21 with `tools/strata_bench.py` (suite 1, 3 runs per test, m
 - GPU and VRAM: Intel(R) Arc(TM) Pro B70 Graphics, 32 GiB VRAM
 - CPU: Intel(R) Core(TM) i9-9900 CPU @ 3.10GHz (8 cores, 16 threads); installed RAM: 63.8 GiB; storage: not measured
 - OS: Windows 11 (10.0.26200); GPU driver: 32.0.101.8976; CUDA: not read
-- Strata: project 0.1.46.1, commit 3fa4969c; engine 0.1.46.1
+- Strata: project 0.1.47, commit 5fbb7cfa; engine 0.1.47
 - Background workloads and power limits: not recorded
 
 ## Model and configuration
@@ -35,25 +35,25 @@ Run by `python tools/strata_bench.py --long` against the HTTP API of a Strata se
 
 | Configuration | Actual prompt tokens | Reused tokens | Generated tokens | Runs | Prompt tok/s median and range | Decode tok/s median and range | TTFT seconds median and range |
 | --- | ---: | ---: | ---: | ---: | --- | --- | --- |
-| short chat | 46 (43-51) | 0 | 100 (100-100) | 9 | not measured | 51.3 (34.1-66.6) | 0.45 (0.43-0.47) |
-| 4K prompt, fresh | 4019 (4019-4019) | 0 (0-0) | 24 cap | 3 | 1451.3 (1445.3-1458.5) | not measured | 2.81 (2.80-2.83) |
-| 16K prompt, fresh | 16058 (16058-16058) | 0 (0-0) | 24 cap | 3 | 1406.6 (1405.9-1413.7) | not measured | 11.47 (11.41-11.48) |
-| agent session, follow-up turns | 14551 (14538-14589) at the last turn | see below | up to 64 | 3 | see below | 57.7 (26.8-74.4) | 2.39 (1.52-2.71) |
+| short chat | 46 (43-51) | 0 | 100 (100-100) | 9 | not measured | 50.1 (34.4-67.6) | 0.45 (0.44-0.47) |
+| 4K prompt, fresh | 4019 (4019-4019) | 0 (0-0) | 24 cap | 3 | 1436.0 (1316.3-1438.1) | not measured | 2.85 (2.85-3.10) |
+| 16K prompt, fresh | 16058 (16058-16058) | 0 (0-0) | 24 cap | 3 | 1386.8 (1383.5-1410.4) | not measured | 11.64 (11.44-11.66) |
+| agent session, follow-up turns | 14495 (14457-14557) at the last turn | see below | up to 64 | 3 | see below | 62.1 (42.1-78.2) | 2.53 (1.55-3.02) |
 
 Ranges are the lowest and highest of the runs; `Runs` counts requests that returned a token.
 
 ### Agent session (conversation cache)
 
-Cache hit over the follow-up turns: 69.3 % (69.2-69.3); earlier-turn tokens read again per session: 4 (3-5) (earlier turns that the cache did not hold; the 13824 (13824-13826) new tokens of the files are read once); first turn (nothing cached) first token: 0.94 s (0.91-2.05).
+Cache hit over the follow-up turns: 69.5 % (69.4-69.6); earlier-turn tokens read again per session: 4 (2-4) (earlier turns that the cache did not hold; the 13728 (13728-13728) new tokens of the files are read once); first turn (nothing cached) first token: 0.94 s (0.93-0.97).
 
 | Turn (run 1) | Prompt tokens | Reused | Read | Prompt tok/s | First token (s) | Decode tok/s |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 0 | 609 | 0 | 609 | 701.0 | 0.908 | 60.2 |
-| 1 | 4094 | 629 | 3465 | 1331.2 | 2.646 | 65.0 |
-| 2 | 5627 | 4157 | 1470 | 985.3 | 1.532 | 57.4 |
-| 3 | 9014 | 5645 | 3369 | 1267.5 | 2.712 | 57.3 |
-| 4 | 11753 | 9045 | 2708 | 1196.9 | 2.307 | 61.4 |
-| 5 | 14589 | 11770 | 2819 | 1202.2 | 2.401 | 61.4 |
+| 0 | 609 | 0 | 609 | 645.5 | 0.972 | 65.5 |
+| 1 | 4114 | 645 | 3469 | 1169.1 | 3.019 | 60.0 |
+| 2 | 5641 | 4174 | 1467 | 856.0 | 1.771 | 62.1 |
+| 3 | 9074 | 5705 | 3369 | 1135.5 | 3.002 | 66.0 |
+| 4 | 11825 | 9117 | 2708 | 1074.2 | 2.581 | 57.5 |
+| 5 | 14557 | 11840 | 2717 | 1098.3 | 2.534 | 54.8 |
 
 ### Skipped and failed
 
@@ -63,4 +63,4 @@ Per-request data: `results.json`. Engine log lines from the start: `engine-log-e
 
 ## Correctness and limitations
 
-Not measured: this is a speed suite. The conversation uses the model's own replies, so token counts differ a little between runs. Machine details come from the server, `nvidia-smi`/`rocm-smi` and the OS; background load and power limits are not recorded. Total time of the suite: 117 s.
+Not measured: this is a speed suite. The conversation uses the model's own replies, so token counts differ a little between runs. Machine details come from the server, `nvidia-smi`/`rocm-smi` and the OS; background load and power limits are not recorded. Total time of the suite: 121 s.

@@ -264,8 +264,12 @@ overwritten. `sycl-ls` stops crashing with the driver's loader in place.
 
 Re-checked after merging upstream's 291 commits (0.2.2, engine 0.1.47) on 2026-10-21: the build is clean again (234
 targets, 51 executables, upstream's new `tq_sycl_parity` among them and passing on the B70), `positioned_file_test`
-passes, 30 of 31 model-free parity tests pass, and the tuned figures above come from that engine. Upstream's trellis
-and Gyro kernels do not apply to the models measured here. One workflow note: a running server holds
+passes, 30 of 31 model-free parity tests pass, and the tuned figures above come from that engine. The default
+configuration was re-measured too and did not move either: chat decode 50.1 tok/s against 51.3, first token 0.45 s both
+times, 4K prompt 1,436 against 1,451, 16K 1,387 against 1,407, agent session 62.1 against 57.7, cache 11,258 experts
+against 11,264 - every pair inside the run-to-run spread, which is wider than the difference between the two engines
+(the same question measured 34 to 68 tok/s within one configuration). Upstream's trellis and Gyro kernels do not apply
+to the models measured here. One workflow note: a running server holds
 `build-sycl-win\strata.exe`, so the link fails with `LNK1104` until it is stopped.
 
 What has **not** been run on Windows: pictures, the Arc A-series (Windows uses Level Zero for every Arc, `i915` is a
