@@ -217,14 +217,17 @@ equivalent. Fixing it needs an administrator:
 Set-ItemProperty 'HKLM:\SOFTWARE\Intel\oneAPI\LevelZero\1' -Name LevelZeroLoaderPath -Value 'C:\Windows\System32'
 ```
 
-The kernel parity tests that need no model were run on the B70 through Level Zero the same day, with
-`ONEAPI_DEVICE_SELECTOR=level_zero:0`: 27 of 31 pass (rope, sampler, elementwise, cvec, kv_q8 / q4 / hybrid / steps /
-stream, quantize_act, router_top10, s_gemv and its q8k form, s2_gemv and its q8 form, bf16_gemv, dequant_s2,
-gr_multi, gdn, verify, qsa, esimd_moe, resident_plan, shared_expert, sycl_router_fast, esimd_moe_mode; xmx_group
-skips itself without the AOT build). Three fail: `gr_parity` in its `STRATA_QFUSE` cases only ("QFUSE: T=1 rep 0: not
-written"), `s2_expert_grouped_parity` in the 20-group `moe_grouped_s2` and resident variants (the "hit" variants are
-bitwise identical), and `sycl_payload_pairs` at `offset=1` ("120 failures"). `qsa_prompt_attn_parity` prints PASS for
-int8 and fp16 at 32K context and exits 2.
+The kernel parity tests that need no model were run on the B70 through Level Zero the same day with `ctest`, which
+applies each test's own arguments and environment: 29 of 31 pass (rope, sampler, elementwise, cvec, kv_q8 / q4 /
+hybrid / steps / stream, quantize_act, router_top10, s_gemv and its q8k form, s2_gemv and its q8 form, bf16_gemv,
+dequant_s2, gr_multi, gdn, verify, qsa, esimd_moe, resident_plan, shared_expert, sycl_router_fast, esimd_moe_mode and
+sycl_payload_pairs; xmx_group skips itself without the AOT build). Two fail, and both are expectations that do not hold
+on this port: `gr_parity`'s `STRATA_QFUSE` block, which the SYCL port does not implement (the kernels return false
+with "SYCL port: never writes the q8_1 images"), and `s2_expert_grouped_parity`'s 20-group `moe_grouped_s2` and
+resident cases, where the new grouped kernel differs bitwise from the previous one on Battlemage while both stay within
+1e-7 of the host reference (the "hit" variants are bitwise identical). Run them through `ctest`: `sycl_payload_pairs`
+needs `STRATA_DOORBELL_CHECK=1`, because its resident-publish path copies `x` only with that check, and a bare run then
+reports 120 failures that are not there. `qsa_prompt_attn_parity` prints PASS for int8 and fp16 at 32K and exits 2.
 
 **If the engine dies with `0xC0000005` at startup, look at `C:\Windows\System32\ze_loader.dll`.** Windows keeps one
 Level Zero loader there and every process uses it. A graphics driver installed from a manual extraction can leave an
