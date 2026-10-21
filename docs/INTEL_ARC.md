@@ -191,13 +191,33 @@ oneAPI 2026.2, MSVC 14.51 (Visual Studio 18):
   the same way on upstream main without the Windows work.
 
 **Check Level Zero first: the engine needs it.** The port's config asks for the free-VRAM query and command graphs,
-so `sycl/setup_intel.py` refuses a card that SYCL offers only through OpenCL. On the PC measured here Level Zero
-itself worked (`zeInit` and `zeInitDrivers` succeeded, one GPU device with the driver's API 1.15) while SYCL's Level
-Zero adapter reported no platform under oneAPI 2026.0, 2026.1 and 2026.2, with the classic adapter and the v2 adapter
-each run on its own, and the card was listed only as `[opencl:gpu]`; that is written up as a report for Intel, and
-it is the one
-thing that stopped a model from running there. `sycl-ls` is the check: a `[level_zero:gpu]` line for the card means
-the engine will run, an `[opencl:gpu]` line on its own means it will not.
+so `sycl/setup_intel.py` refuses a card that SYCL offers only through OpenCL. `sycl-ls` is the check: a
+`[level_zero:gpu]` line for the card means the engine will run, an `[opencl:gpu]` line on its own means it will not.
+On the PC measured here it works: `sycl-ls` lists the Arc as `[level_zero:gpu] ... Unified Runtime over Level-Zero V2
+... 20.2.0 [1.15.39183+4]`, and `strata.exe --list-devices` reports `"driver":"level_zero"` with
+`free_memory_supported` and `command_graph_supported` both true, against the driver's Level Zero API 1.15.
+
+If the card appears as OpenCL only, check `HKLM\SOFTWARE\Intel\oneAPI\LevelZero\1\LevelZeroLoaderPath`: it has to be
+the **folder** that holds `ze_loader.dll` (`C:\Windows\System32`), not the DLL itself. The 2026 adapter carries a
+static loader that appends `ze_loader.dll` to that value (`create_library_path` in `source/inc/ze_util.h` of Level
+Zero), so a file path makes it look for `...\ze_loader.dll\ze_loader.dll`, `zeInit` then answers
+`ZE_RESULT_ERROR_UNINITIALIZED`, and SYCL reports no Level Zero platform while a direct `zeInit` through the loader
+still succeeds. That was the whole failure measured here: the value had been written by hand as a file path.
+`UR_L0_DEBUG=1 sycl-ls` prints the adapter's own reason, and `ZEL_LIBRARY_PATH` set to the folder is the per-process
+equivalent. Fixing it needs an administrator:
+
+```powershell
+Set-ItemProperty 'HKLM:\SOFTWARE\Intel\oneAPI\LevelZero\1' -Name LevelZeroLoaderPath -Value 'C:\Windows\System32'
+```
+
+The kernel parity tests that need no model were run on the B70 through Level Zero the same day, with
+`ONEAPI_DEVICE_SELECTOR=level_zero:0`: 27 of 31 pass (rope, sampler, elementwise, cvec, kv_q8 / q4 / hybrid / steps /
+stream, quantize_act, router_top10, s_gemv and its q8k form, s2_gemv and its q8 form, bf16_gemv, dequant_s2,
+gr_multi, gdn, verify, qsa, esimd_moe, resident_plan, shared_expert, sycl_router_fast, esimd_moe_mode; xmx_group
+skips itself without the AOT build). Three fail: `gr_parity` in its `STRATA_QFUSE` cases only ("QFUSE: T=1 rep 0: not
+written"), `s2_expert_grouped_parity` in the 20-group `moe_grouped_s2` and resident variants (the "hit" variants are
+bitwise identical), and `sycl_payload_pairs` at `offset=1` ("120 failures"). `qsa_prompt_attn_parity` prints PASS for
+int8 and fp16 at 32K context and exits 2.
 
 **If the engine dies with `0xC0000005` at startup, look at `C:\Windows\System32\ze_loader.dll`.** Windows keeps one
 Level Zero loader there and every process uses it. A graphics driver installed from a manual extraction can leave an
@@ -208,8 +228,9 @@ the two `FileVersion`s; replacing the System32 copy with the driver's needs an a
 `TrustedInstaller` and usually mapped by Intel Graphics Software, so it has to be renamed aside rather than
 overwritten. `sycl-ls` stops crashing with the driver's loader in place.
 
-What has **not** been run on Windows: a model (Level Zero, above), pictures, the Arc A-series (Windows uses Level Zero
-for every Arc, `i915` is a Linux driver), two cards, and the Docker path. WSL2 with an Arc has been used by one tester
+What has **not** been run on Windows: a model (none was on that PC yet, so the numbers above are the build, the setup
+tests, the host test and the device listing), pictures, the Arc A-series (Windows uses Level Zero for every Arc,
+`i915` is a Linux driver), two cards, and the Docker path. WSL2 with an Arc has been used by one tester
 (the B580 row above), but setup cannot detect the card there, because it reads `/sys/class/drm`, which WSL2 does not
 have.
 
