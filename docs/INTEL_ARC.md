@@ -204,10 +204,12 @@ oneAPI 2026.2, MSVC 14.51 (Visual Studio 18):
   `--spec 2` instead of 4 gave 56.3 tok/s on those nine, so the default T=4 is the better setting here.
 - Fitting every expert changes the balance. The default `--prefill 4096` and 1 GiB reserve leave 11,264 of the Coder
   IQ1_M's 12,288 experts in VRAM (21.46 GiB of 31.16). With `--prefill 2048 --vram-reserve-mib 512` the cache holds
-  12,219 (23.29 GiB), and on the same suite chat decode is 61.8 tok/s (58.0-79.9, against 51.3), the agent session
-  65.0 (57.7), first token 0.40 s (0.45); the 4K prompt falls to 1,355 tok/s (from 1,451) and 16K to 1,326 (from
-  1,407), because the chunk is half the size. On the nine fixed short questions the same change is 76.9 against 66.0.
-  That is a trade for chat-heavy use, not a default: the prompt path wants the bigger chunk.
+  12,131 (23.12 GiB), and on the same suite chat decode is 61.6 tok/s (53.2-82.8, against 51.3), the agent session
+  63.8 (57.7), first token 0.39 s (0.45); the 4K prompt falls to 1,340 tok/s (from 1,451) and 16K to 1,351 (from
+  1,407), because the chunk is half the size. On the nine fixed short questions the same change is 78.6 against 66.0.
+  That is a trade for chat-heavy use, not a default: the prompt path wants the bigger chunk. The tuned figures are
+  engine 0.1.47; the default ones they compare against are 0.1.46.1, and the engine measured the same on both
+  (chat 61.8 -> 61.6).
 - Three tuning checks on the same unit, so nobody has to repeat them. The prompt chunk trades directly against decode:
   `--prefill 2048` holds 12,219 experts and gives 76.9 tok/s on the nine questions with 1,284 tok/s on 4K; 4096 holds
   11,524 and gives 71.2 / 1,350; 8192 holds 10,015 and gives 53.3 / 1,423; `auto` holds 12,086 and gives 75.9 / 1,244.
@@ -259,6 +261,12 @@ the DriverStore (1.32.0, the same driver that ships `ze_intel_gpu64.dll` 32.0.10
 the two `FileVersion`s; replacing the System32 copy with the driver's needs an administrator, and the file is owned by
 `TrustedInstaller` and usually mapped by Intel Graphics Software, so it has to be renamed aside rather than
 overwritten. `sycl-ls` stops crashing with the driver's loader in place.
+
+Re-checked after merging upstream's 291 commits (0.2.2, engine 0.1.47) on 2026-10-21: the build is clean again (234
+targets, 51 executables, upstream's new `tq_sycl_parity` among them and passing on the B70), `positioned_file_test`
+passes, 30 of 31 model-free parity tests pass, and the tuned figures above come from that engine. Upstream's trellis
+and Gyro kernels do not apply to the models measured here. One workflow note: a running server holds
+`build-sycl-win\strata.exe`, so the link fails with `LNK1104` until it is stopped.
 
 What has **not** been run on Windows: pictures, the Arc A-series (Windows uses Level Zero for every Arc, `i915` is a
 Linux driver), two cards, and the Docker path. WSL2 with an Arc has been used by one tester (the B580 row above), but
