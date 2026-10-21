@@ -189,6 +189,13 @@ oneAPI 2026.2, MSVC 14.51 (Visual Studio 18):
   an invalid handle, a missing file.
 - `python tools\test_setup_*.py`: all pass except `test_setup_golden.py` (19) and `test_setup_menu.py` (1), which fail
   the same way on upstream main without the Windows work.
+- the model: Coder IQ1_M on the B70 through Level Zero (11,264 experts resident, 21.46 GiB of VRAM, ready in about
+  58 s from a cold start), `tools/strata_bench.py`, 3 runs per test, medians: chat decode 51.3 tok/s (34.1-66.6),
+  first token 0.45 s; a 4K prompt 1,451 tok/s, first token 2.81 s; a 16K prompt 1,407 tok/s, first token 11.47 s; an
+  agent session 57.7 tok/s decode (26.8-74.4), 69.3% of each turn's prompt read from the conversation cache. The
+  Linux B70 row for the same model is 70-78 tok/s decode and ~790 tok/s prompt, so on Windows prompt reading is ahead
+  and decode is behind. This PC is a Core i9-9900 with 64 GB of RAM and the JIT build (`STRATA_SYCL_AOT` not set); the
+  32K prompt test skipped itself because the context is exactly 32,768 tokens.
 
 **Check Level Zero first: the engine needs it.** The port's config asks for the free-VRAM query and command graphs,
 so `sycl/setup_intel.py` refuses a card that SYCL offers only through OpenCL. `sycl-ls` is the check: a
@@ -228,11 +235,9 @@ the two `FileVersion`s; replacing the System32 copy with the driver's needs an a
 `TrustedInstaller` and usually mapped by Intel Graphics Software, so it has to be renamed aside rather than
 overwritten. `sycl-ls` stops crashing with the driver's loader in place.
 
-What has **not** been run on Windows: a model (none was on that PC yet, so the numbers above are the build, the setup
-tests, the host test and the device listing), pictures, the Arc A-series (Windows uses Level Zero for every Arc,
-`i915` is a Linux driver), two cards, and the Docker path. WSL2 with an Arc has been used by one tester
-(the B580 row above), but setup cannot detect the card there, because it reads `/sys/class/drm`, which WSL2 does not
-have.
+What has **not** been run on Windows: pictures, the Arc A-series (Windows uses Level Zero for every Arc, `i915` is a
+Linux driver), two cards, and the Docker path. WSL2 with an Arc has been used by one tester (the B580 row above), but
+setup cannot detect the card there, because it reads `/sys/class/drm`, which WSL2 does not have.
 
 ## Reporting a problem
 
