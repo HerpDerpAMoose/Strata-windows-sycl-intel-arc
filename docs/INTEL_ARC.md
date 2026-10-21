@@ -208,6 +208,13 @@ oneAPI 2026.2, MSVC 14.51 (Visual Studio 18):
   65.0 (57.7), first token 0.40 s (0.45); the 4K prompt falls to 1,355 tok/s (from 1,451) and 16K to 1,326 (from
   1,407), because the chunk is half the size. On the nine fixed short questions the same change is 76.9 against 66.0.
   That is a trade for chat-heavy use, not a default: the prompt path wants the bigger chunk.
+- Three tuning checks on the same unit, so nobody has to repeat them. The prompt chunk trades directly against decode:
+  `--prefill 2048` holds 12,219 experts and gives 76.9 tok/s on the nine questions with 1,284 tok/s on 4K; 4096 holds
+  11,524 and gives 71.2 / 1,350; 8192 holds 10,015 and gives 53.3 / 1,423; `auto` holds 12,086 and gives 75.9 / 1,244.
+  `--batch 4` is a loss on this port: four concurrent 100-token requests total 29.5 tok/s (7-9 each) against 71 for
+  one stream, and the batch path drops the cache to 10,223 slots, so serial is the setting for agents here. The card
+  is not clock-limited: under decode Sysman reports the GPU at its 2,800 MHz TDP ceiling (driver request 4,250, no
+  throttle reasons) and memory at 19,000 MHz, so power and clocks leave nothing on the table.
 
 **Check Level Zero first: the engine needs it.** The port's config asks for the free-VRAM query and command graphs,
 so `sycl/setup_intel.py` refuses a card that SYCL offers only through OpenCL. `sycl-ls` is the check: a
