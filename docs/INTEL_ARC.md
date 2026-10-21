@@ -230,12 +230,15 @@ Set-ItemProperty 'HKLM:\SOFTWARE\Intel\oneAPI\LevelZero\1' -Name LevelZeroLoader
 ```
 
 The kernel parity tests that need no model were run on the B70 through Level Zero the same day with `ctest`, which
-applies each test's own arguments and environment: 29 of 31 pass (rope, sampler, elementwise, cvec, kv_q8 / q4 /
+applies each test's own arguments and environment: 30 of 31 pass (rope, sampler, elementwise, cvec, kv_q8 / q4 /
 hybrid / steps / stream, quantize_act, router_top10, s_gemv and its q8k form, s2_gemv and its q8 form, bf16_gemv,
 dequant_s2, gr_multi, gdn, verify, qsa, esimd_moe, resident_plan, shared_expert, sycl_router_fast, esimd_moe_mode and
 sycl_payload_pairs; `xmx_group` skips itself without the AOT build). One fails: `s2_expert_grouped_parity`'s 20-group
-`moe_grouped_s2` and resident cases, where the new grouped kernel differs bitwise from the previous one on Battlemage
-while both stay within 1e-7 of the host reference (the "hit" variants are bitwise identical). `gr_parity`'s
+`moe_grouped_s2` and resident cases, where the new grouped kernel differs bitwise from the previous one on Battlemage.
+Measured: the worst absolute difference is 5.7e-06 on an output scale of 38 (1.5e-7, one to two float32 ULPs), it is
+identical across runs (deterministic, not a race), and with an fp16 output the result is bit-identical; both kernels
+also stay within 1e-7 of the host reference, and the "hit" variants are bitwise identical. So it is how the new kernel
+associates the sum, not a wrong answer; the test's bitwise contract is left as it is. `gr_parity`'s
 `STRATA_QFUSE` block prints `SKIP (the SYCL port does not build STRATA_QFUSE)` instead of failing, because the kernels
 return false with "SYCL port: never writes the q8_1 images". Run them through `ctest`: `sycl_payload_pairs`
 needs `STRATA_DOORBELL_CHECK=1`, because its resident-publish path copies `x` only with that check, and a bare run then
