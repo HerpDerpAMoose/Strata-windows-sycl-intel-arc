@@ -270,6 +270,17 @@ against 11,264 - every pair inside the run-to-run spread, which is wider than th
 to the models measured here. One workflow note: a running server holds
 `build-sycl-win\strata.exe`, so the link fails with `LNK1104` until it is stopped.
 
+**0.1.48.1 (0.2.3.1, 2026-10-23).** Upstream's release made Intel Arc a released engine package on Linux and turned
+pictures on for every Arc card, B-series included. The merge needed one conflict resolved in this file (upstream's
+Linux paragraph kept, the Windows sentence restored) and one decision: on Windows pictures stay off by default,
+because no picture request has been run on this port. Rebuilt with `sycl\tools\build_windows.bat`: 234 targets, 0
+errors, 51 executables, and `strata.exe --version` answers `strata 0.1.48.1` (upstream added `--version` to the SYCL
+engine). `positioned_file_test` passes. Of the 39 model-free parity tests in ctest, 37 pass:
+`s2_expert_grouped_parity` fails as it did before (about 1.5e-7, 1-2 float32 ULP, deterministic, fp16 output
+bit-identical), and `ple_parity` cannot open the Q2_0 fixture it names by default on this PC; pointed at the Coder
+IQ1_M PLE shard it reports 0 failures. A request through `serve/server.py` on this build answered normally (32 tokens,
+42.6 tok/s decode on a cold cache). The model was not re-benchmarked on 0.1.48.1.
+
 What has **not** been run on Windows: pictures, the Arc A-series (Windows uses Level Zero for every Arc, `i915` is a
 Linux driver), two cards, and the Docker path. WSL2 with an Arc has been used by one tester (the B580 row above), but
 setup cannot detect the card there, because it reads `/sys/class/drm`, which WSL2 does not have.
