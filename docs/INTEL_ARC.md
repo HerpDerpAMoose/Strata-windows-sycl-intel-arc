@@ -12,12 +12,9 @@ result on Arc hardware came from the community. Since 0.1.40.2 the maintainers a
 (32 GB, `xe`) and an Arc A750 (8 GB, `i915`); the results from those two cards are marked in the table below. Other cards
 are still community reports. The NVIDIA and AMD engines are unchanged: the Intel build is a separate CMake target, off by default.
 
-**Where the engine comes from.** There is **no Intel engine in the release zips** (the ones `START-HERE.bat` and `setup.sh`
-use): you build it from source on Linux, as described below. The Docker route is a ready-made image,
-`ghcr.io/niko1221/strata:0.2.2-sycl`, which is published only for a release that carries a Linux Intel engine package; with none, [build
-the image yourself](DOCKER.md#build-it-yourself) from the engine you built (the image needs prepared model files; see
-[Docker: Intel Arc](DOCKER.md#intel-arc)). The Mac build has no Intel engine; Windows builds one from source with
-`sycl\tools\build_windows.bat` (see "Windows" below).
+
+**Where the engine comes from.** On Linux, `strata update` (Terminal) and Settings > Update (app) download the Intel engine package, `linux-x86_64-sycl`, for a PC whose graphics card is made by Intel, when the release feed lists one (`strata update --check` shows what it would install). One package serves Alchemist (A-series) and Battlemage (B-series) cards: the GPU code is compiled from SPIR-V at the first start, because the A-series cards have no FP64 units and the engine's FP64 kernels cannot be built ahead of time for them. It carries oneAPI's runtime libraries; the Level Zero loader and the compute runtime stay the PC's own (see "What you need" below), and the user must be in the `render` group (`strata doctor` says so). The package is built by `packaging/build_sycl_linux.sh`. It was tested on an Arc A750 only. The release zips (the ones `START-HERE.bat` and `setup.sh` use) have no Intel engine; to build one from source, follow the steps below. The Docker route is a ready-made image, `ghcr.io/niko1221/strata:0.2.3-sycl`, which is published only for a release that carries a Linux Intel engine package; with none, [build the image yourself](DOCKER.md#build-it-yourself) from the engine you built (the image needs prepared model files; see [Docker: Intel Arc](DOCKER.md#intel-arc)). The Mac build has no Intel engine. **Windows has no released Intel engine either**: this fork builds one from source with `sycl\tools\build_windows.bat` (see "Windows" below).
+
 
 ## What has been run, and by whom
 
@@ -188,8 +185,8 @@ oneAPI 2026.2, MSVC 14.51 (Visual Studio 18):
   `strata.exe` (40 MB) and the kernel parity tests.
 - `positioned_file_test.exe`: PASS — 8 threads on one shared handle, an offset past 4 GiB, short reads, end of file,
   an invalid handle, a missing file.
-- `python tools\test_setup_*.py`: all pass except `test_setup_golden.py` (19) and `test_setup_menu.py` (1), which fail
-  the same way on upstream main without the Windows work.
+- `python tools\test_setup_*.py`: all pass except `test_setup_golden.py` (19) and `test_setup_unsloth.py` (4), which fail
+  the same way on upstream main without the Windows work (0.2.3.1: 46 of 48 files pass).
 - the model: Coder IQ1_M on the B70 through Level Zero (11,264 experts resident, 21.46 GiB of VRAM, ready in about
   58 s from a cold start), `tools/strata_bench.py`, 3 runs per test, medians: chat decode 51.3 tok/s (34.1-66.6),
   first token 0.45 s; a 4K prompt 1,451 tok/s, first token 2.81 s; a 16K prompt 1,407 tok/s, first token 11.47 s; an
@@ -276,6 +273,9 @@ to the models measured here. One workflow note: a running server holds
 What has **not** been run on Windows: pictures, the Arc A-series (Windows uses Level Zero for every Arc, `i915` is a
 Linux driver), two cards, and the Docker path. WSL2 with an Arc has been used by one tester (the B580 row above), but
 setup cannot detect the card there, because it reads `/sys/class/drm`, which WSL2 does not have.
+
+Pictures are therefore off by default on Windows: setup passes `--vision none` unless `--vision yes` is given. (0.2.3
+turns them on by default on Linux, where the A750 has run them; this port has not run one yet.)
 
 ## Reporting a problem
 
