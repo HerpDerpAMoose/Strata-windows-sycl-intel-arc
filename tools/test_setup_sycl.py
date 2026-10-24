@@ -325,6 +325,37 @@ class ToSycl(unittest.TestCase):
         self.assertEqual(c["env"]["STRATA_VERIFY_NO_HOST"], "0")
         self.assertEqual(c["env"]["STRATA_SYCL_BIN"], "build-sycl/strata")
 
+    def test_experts_that_do_not_fit_use_the_cpu_arena_on_windows(self):
+        """Arc Pro B60 24 GB, Coder IQ1_M at 8K: ~17 GB is left for a 23.4 GB expert set. The mirror then reads most tokens
+        over PCIe; the arena (the CPU computes the misses) measured +88% on that card, and --spec 4 loses 18% there."""
+        m = self.mod()
+        notes = []
+        c = m.to_sycl(self.cfg(m, ["--max-context", "8192", "--spec", "4"]),
+                      m.ROOT / "build-sycl-win" / "strata.exe", 64.0, {}, 24.0, "level_zero", "e221",
+                      fit_notes=notes, model="IQ1_M")
+        self.assertNotIn("--stream-experts", c["args"])
+        self.assertEqual(c["env"]["STRATA_VERIFY_NO_HOST"], "0")
+        self.assertEqual(c["args"][c["args"].index("--spec") + 1], "2")
+        self.assertTrue(any("do not fit" in line for line in notes), notes)
+
+    def test_the_b70_keeps_the_mirror_where_every_expert_fits(self):
+        """The control: Coder IQ1_M at 256K on the 32 GB B70 leaves 26.5 GB for the 23.4 GB expert set, so the path is
+        exactly the one the Windows reports measured - no byte changes for this card."""
+        m = self.mod()
+        c = m.to_sycl(self.cfg(m, ["--max-context", "262144", "--spec", "4"]),
+                      m.ROOT / "build-sycl-win" / "strata.exe", 64.0, {}, 32.0, "level_zero", "e223",
+                      model="IQ1_M")
+        self.assertIn("--stream-experts", c["args"])
+        self.assertEqual(c["env"]["STRATA_VERIFY_NO_HOST"], "1")
+        self.assertEqual(c["args"][c["args"].index("--spec") + 1], "4")
+
+    def test_linux_keeps_the_mirror_whatever_the_card_holds(self):
+        m = self.mod()
+        c = m.to_sycl(self.cfg(m, ["--max-context", "8192", "--spec", "4"]),
+                      m.ROOT / "build-sycl-aot" / "strata", 64.0, {}, 24.0, "xe", "e221", model="IQ1_M")
+        self.assertIn("--stream-experts", c["args"])
+        self.assertEqual(c["args"][c["args"].index("--spec") + 1], "4")
+
     def test_gyro_memory_warning_reads_the_real_ram(self):
         # setup's RAM rule is fed 1024 GB on the Intel path; Gyro counts VRAM + RAM, so it must see the real RAM
         m = self.mod()

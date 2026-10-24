@@ -27,7 +27,7 @@ are still community reports. The NVIDIA and AMD engines are unchanged: the Intel
 | Community | 2x Arc Pro B60 24 GB, `--layer-split` | Coder IQ1_M: 56.6 tok/s decode, 428 tok/s prompt (2,129 tokens); Flash-Next IQ2_XS: 58.6-61.3 tok/s decode, 436 tok/s prompt; all experts in VRAM; 8K context | [bench/results/2026-10-04-community-2x-arc-pro-b60](../bench/results/2026-10-04-community-2x-arc-pro-b60/README.md) |
 | Community | one Arc Pro B60 24 GB | Coder IQ1_M with 4,042 of 12,288 experts mirrored in RAM: 11.9 tok/s decode (needs the ring-wait fix from the same report) | same |
 | Strata maintainers (0.1.40.2 and later) | Arc Pro B70 32 GB (xe) and Arc A750 8 GB (i915), test machines | Flash-Next IQ3_S on the B70 with 11.5k of 24.6k experts resident: 10-prompt gate passes, prompt 980-1,000 tok/s on 4K tokens, decode 30 (prose) to 41 (code) tok/s; the xe aliased-pages fix and the `NO_HOST` requirement are in [INTEL.md](INTEL.md) | INTEL.md, "Arc Pro B70 with a model that does not fit" |
-| Strata on Windows (this fork's native port, engine 0.1.47) | Arc Pro B70 32 GB (xe), Core i9-9900, 64 GB, Windows 11 25H2, oneAPI 2026.2, Level Zero V2 | Coder IQ1_M, 32K, 11,264 of 12,288 experts in VRAM (12,131 with `--prefill 2048` and a 512 MiB reserve): prompt 1,451 / 1,407 tok/s (4K / 16K) as installed and 1,340 / 1,351 tuned; decode 51 as installed / 62 tuned on the suite's chat questions, 66 / 79 on nine short-answer questions, agent session 58 / 64. IQ3_XXS (its experts stream): 906 / 955 tok/s prompt, 38 tok/s decode | [Coder IQ1_M](../bench/results/2026-10-21-community-arc-pro-b70-coder-iq1_m/), [all experts resident](../bench/results/2026-10-21-community-arc-pro-b70-coder-iq1_m-all-resident/), [IQ3_XXS](../bench/results/2026-10-21-community-arc-pro-b70-iq3_xxs/) |
+| Strata on Windows (this fork's native port, engine 0.1.47) | Arc Pro B70 32 GB (xe), Core i9-9900, 64 GB, Windows 11 25H2, oneAPI 2026.2, Level Zero V2 | Coder IQ1_M, 32K, 11,264 of 12,288 experts in VRAM (12,131 with `--prefill 2048` and a 512 MiB reserve): prompt 1,451 / 1,407 tok/s (4K / 16K) as installed and 1,340 / 1,351 tuned; decode 51 as installed / 62 tuned on the suite's chat questions, 66 / 79 on nine short-answer questions, agent session 58 / 64. IQ3_XXS (its experts stream, mirror path): 906 / 955 tok/s prompt, 38 tok/s decode (the arena path, now the default when they do not fit, is 64.6 at 32K: see the 0.1.48.1 note below) | [Coder IQ1_M](../bench/results/2026-10-21-community-arc-pro-b70-coder-iq1_m/), [all experts resident](../bench/results/2026-10-21-community-arc-pro-b70-coder-iq1_m-all-resident/), [IQ3_XXS](../bench/results/2026-10-21-community-arc-pro-b70-iq3_xxs/) |
 
 The 0.1.39 port re-migrates 0.1.38's port onto the 0.1.39 engine sources (the #606 NaN fix, the #649 verify
 trace, the new prompt paths). 0.1.39's `sycl/` did not compile against 0.1.39's own engine sources (#784: the
@@ -178,12 +178,12 @@ missing, and the run config carries the oneAPI runtime folders in `lib_dirs` ins
 The build uses MSVC and oneAPI (`icx` + oneMKL); SYCL's GCC-style flags are spelled for icx on Windows in
 `sycl/CMakeLists.txt` (`/fp:precise`, `/Qmkl:sequential`), and the few POSIX calls are behind `#ifdef _WIN32`.
 
-What has been run — measured on 2026-10-20 on Windows 11 25H2, Core i9-9900, Arc Pro B70 32 GB, driver 32.0.101.8976,
+What has been run â€” measured on 2026-10-20 on Windows 11 25H2, Core i9-9900, Arc Pro B70 32 GB, driver 32.0.101.8976,
 oneAPI 2026.2, MSVC 14.51 (Visual Studio 18):
 
 - `sycl\tools\build_windows.bat`: the whole `sycl` project, 232 targets, 0 errors, 50 executables, among them
   `strata.exe` (40 MB) and the kernel parity tests.
-- `positioned_file_test.exe`: PASS — 8 threads on one shared handle, an offset past 4 GiB, short reads, end of file,
+- `positioned_file_test.exe`: PASS â€” 8 threads on one shared handle, an offset past 4 GiB, short reads, end of file,
   an invalid handle, a missing file.
 - `python tools\test_setup_*.py`: all pass except `test_setup_golden.py` (19) and `test_setup_unsloth.py` (4), which fail
   the same way on upstream main without the Windows work (0.2.3.1: 46 of 48 files pass).
@@ -280,6 +280,35 @@ engine). `positioned_file_test` passes. Of the 39 model-free parity tests in cte
 bit-identical), and `ple_parity` cannot open the Q2_0 fixture it names by default on this PC; pointed at the Coder
 IQ1_M PLE shard it reports 0 failures. A request through `serve/server.py` on this build answered normally (32 tokens,
 42.6 tok/s decode on a cold cache). The model was not re-benchmarked on 0.1.48.1.
+
+**Two settings that bite on a 24 GB card** (measured by an Arc Pro B60 owner, 2026-10-24). `--vram-reserve-mib` below
+about 1024 moves the card's memory out from under the engine: decode fell from 36.3 to 3.76 tok/s at 512, and the
+700 MiB default is already near the edge there. `--prefill 8192` helps only with `--prefill-borrow` and below about
+32K context: at 8K it lifted a 16,000-token prompt to 852 tok/s (19.1 s to first token); at 64K the same pair gave
+51 tok/s prefill and 7.9 tok/s decode, against 687 and 37.0 with `--prefill auto`.
+
+**The expert profile tools default to 512 experts; the Coder has 256.** Pass `--n-expert 256` to
+`make_profile_mix.py`: a profile traced on eight code prompts (`collect_profile_traces.py --mode routing`) measured
++12% on that B60 (38.35/36.92 to 42.04/42.04 tok/s) and removed the run-to-run spread.
+
+**A build note.** A CMake shim that translates MSVC flag spellings into icpx's GNU dialect compiles and links, then
+fails at the first prompt with `No kernel named ... native_q6_k_planar_adopt` (`native_mmvq.dp.cpp`) and
+`iq_embed_rows` (`iq_kernels.dp.cpp`), in JIT and in AOT. The direct `icx` path in `build_windows.bat` emits them: a
+Windows build is not one recipe, the flag dialect decides whether some kernels exist.
+
+**Experts that do not fit: the arena, not the mirror (2026-10-24).** When a model's experts do not fit the card, setup
+used the `--stream-experts` mirror on every xe card, so the experts the cache lacked were read from pinned host memory
+over PCIe on most tokens. An Arc Pro B60 24 GB (Coder IQ1_M, 8K) measured 14.88 tok/s that way with 8% of drafts
+accepted, against **36.29 tok/s and 62%** with the experts in ordinary RAM and the CPU computing the cache misses
+(`STRATA_VERIFY_NO_HOST=0`, `--spec 2`): +88%. The same A/B on this B70 with IQ3_XXS (about 58% of its experts
+resident) gave **40.30 tok/s with the mirror and 64.60 with the arena** (+60%), drafts accepted 86% to 100%, expert
+cache hit rate 94-96% (one prompt, one warm-up, three requests, medians). Setup now chooses by fit on Windows
+(B-series): `vram_fit.experts_fit_mib()` compares the room left for the experts with the model's `arena_gb`, and a
+model that does not fit uses the arena and drafts 2 tokens per round instead of 4 (`--spec 4` cost 18% on that path on
+the B60). The B70 with Coder IQ1_M at 256K leaves 26.5 GB for 23.4 GB of experts, so its config is byte-identical to
+the previous generator (checked at 256K and 32K). Linux and the A-series keep their tested paths. Tokens were not
+compared one by one between the two paths: the CPU and the GPU round differently, as the engine's own near-tie note
+says.
 
 What has **not** been run on Windows: pictures, the Arc A-series (Windows uses Level Zero for every Arc, `i915` is a
 Linux driver), two cards, and the Docker path. WSL2 with an Arc has been used by one tester (the B580 row above), but

@@ -435,6 +435,24 @@ def to_sycl(cfg: dict, exe: Path, ram: float, keep: dict, vram_gb: float = 0.0, 
     if kv != "k8v4" and ctx >= 65536 and ram >= kv_ram + 6:
         args += ["--kv-resident", "32768"]
     alchemist = driver == "i915" or devid in ALCHEMIST_IDS
+    streamed = driver != "i915"                         # the pinned host mirror (xe); i915 has the RAM arena instead
+    arena_gb = float(S.MODELS.get(model, {}).get("arena_gb", 0) or 0)
+    if streamed and native and not alchemist and arena_gb and vram_gb:
+        # Windows, B-series, and only when the experts do not fit: a pinned mirror read over PCIe on most tokens also
+        # starves the draft layer.  Measured on an Arc Pro B60 24 GB (Coder IQ1_M, 8K; report on PR #3607): mirror 14.88
+        # tok/s, the RAM arena 36.29 (+88%), and --spec 4 cost 18% on that path.  Linux and the A-series keep their
+        # tested path.
+        pf_now = flag(args, "--prefill") or recommended_prefill(vram_gb, ctx, driver, devid)[0]
+        kv_in_vram = 32768 if "--kv-resident" in args else ctx
+        room = vram_fit.experts_fit_mib(model, vram_gb, ctx, kv, int(reserve), pf_now, "intel", kv_in_vram)
+        if room < arena_gb * 1024:
+            streamed = False
+            if fit_notes is not None:
+                fit_notes.append(
+                    f"{_model_title(model, args) or 'This model'}: its {arena_gb:.1f} GB of experts do not fit this "
+                    f"{vram_gb:.0f} GB card ({room / 1024:.1f} GB is left for them), so they stay in RAM and the CPU "
+                    "computes the ones the cache lacks - 88% faster than reading a pinned mirror over PCIe on a 24 GB "
+                    "Arc (measured) - and drafts 2 tokens per round instead of 4, which loses 18% on that path")
     if driver == "i915":
         # Arc A-series on i915 (the A750): the experts load into an ordinary RAM arena and the CPU computes the ones
         # the card does not hold; the n-gram table is kept in RAM (setup's rotational-disk rule) and no mirror is built.
@@ -444,8 +462,12 @@ def to_sycl(cfg: dict, exe: Path, ram: float, keep: dict, vram_gb: float = 0.0, 
         if "--ple-io" not in args and not gyro:
             args += ["--ple-io", "ram"]
         args += ["--vram-reserve-mib", reserve]
-    else:
+    elif streamed:
         args += ["--stream-experts", "--vram-reserve-mib", reserve]
+    else:
+        args += ["--vram-reserve-mib", reserve]         # arena: the CPU computes the experts the cache does not hold
+    if not streamed and flag(args, "--spec") == "4":    # setup's default; 4 costs 18% on the arena path (PR #3607)
+        args[args.index("--spec") + 1] = "2"
     if ctx > 32768 or vram_gb >= 24:                    # long contexts: 4096-token chunks keep the prompt buffers small; a
         # 24 GB+ card with part of the experts in the RAM mirror streams those over PCIe once per chunk, so fewer, bigger
         # chunks read the prompt faster (Arc Pro B70, IQ3_S, a 4,095-token prompt: 2,048-token chunks 618 tok/s, 4,096: 1,002;
@@ -479,7 +501,7 @@ def to_sycl(cfg: dict, exe: Path, ram: float, keep: dict, vram_gb: float = 0.0, 
         selector = f"level_zero:{cfg['gpu']}" if isinstance(cfg.get("gpu"), int) else "level_zero:gpu"
         env.update({"ONEAPI_DEVICE_SELECTOR": os.environ.get("ONEAPI_DEVICE_SELECTOR", selector),
                     "ZES_ENABLE_SYSMAN": "1",
-                    "STRATA_VERIFY_DEVICE_PLAN": "1", "STRATA_VERIFY_NO_HOST": "1",
+                    "STRATA_VERIFY_DEVICE_PLAN": "1", "STRATA_VERIFY_NO_HOST": "1" if streamed else "0",
                     "STRATA_STAGER_THREADS": "12"})
         env.update(cfg.get("env", {}))
     elif exe != ROOT / "build-sycl-aot" / "strata":
