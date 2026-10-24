@@ -338,6 +338,19 @@ class ToSycl(unittest.TestCase):
         self.assertEqual(c["args"][c["args"].index("--spec") + 1], "2")
         self.assertTrue(any("do not fit" in line for line in notes), notes)
 
+    def test_a_pc_without_the_ram_for_the_arena_keeps_the_mirror(self):
+        """The arena locks the whole expert set in RAM (40.9 GiB measured for IQ3_XXS on the B70). A 24 GB PC cannot hold
+        a 23.4 GB arena, so the mirror stays: it is slower on such a card but needs less memory."""
+        m = self.mod()
+        notes = []
+        c = m.to_sycl(self.cfg(m, ["--max-context", "8192", "--spec", "4"]),
+                      m.ROOT / "build-sycl-win" / "strata.exe", 24.0, {}, 24.0, "level_zero", "e221",
+                      fit_notes=notes, model="IQ1_M")
+        self.assertIn("--stream-experts", c["args"])
+        self.assertEqual(c["env"]["STRATA_VERIFY_NO_HOST"], "1")
+        self.assertEqual(c["args"][c["args"].index("--spec") + 1], "4")
+        self.assertTrue(any("cannot hold them in RAM" in line for line in notes), notes)
+
     def test_the_b70_keeps_the_mirror_where_every_expert_fits(self):
         """The control: Coder IQ1_M at 256K on the 32 GB B70 leaves 26.5 GB for the 23.4 GB expert set, so the path is
         exactly the one the Windows reports measured - no byte changes for this card."""

@@ -316,6 +316,18 @@ near-tie rounding the engine already documents, amplified by the cache: the aren
 the mirror computes all of them on the GPU, and which experts the cache holds changes as a session goes on. The speed
 is the trade: +60% on the B70 and +88% on the B60.
 
+**The arena needs RAM, and it starts faster.** The engine locks the whole expert set in RAM: 40,927 MiB for IQ3_XXS
+here (`expert arena: locked 40927 MiB`). On the same card the cache filled in 4.9 s with the arena against 43.0 s with
+the mirror, which also builds an 18.29 GiB pinned copy in 37-40 s. Setup therefore takes the arena only when the PC has
+the RAM for it (the model's `ram_gb`, or the arena plus 6 GB, whichever is larger) and otherwise keeps the mirror,
+which is slower but needs less memory.
+
+The estimate is close to the engine's own measurement: `experts_fit_mib()` leaves 24.7 GB for the experts on the B70
+with IQ3_XXS, and the engine printed `expert cache auto: 25.68 GiB free`; on the B60 report it leaves 17.3 GB against
+their 19.00 GiB. `--ple-io` stays at its default (`direct`) here: the engine's probe measured 62,991-66,681 rows/s
+("fine"; the warning bar is 15,000), and on Windows the engine does not switch to mapped reads by itself - a slow probe
+warns instead. `mmap`/`ram` are for a slow drive, not for the expert path.
+
 What has **not** been run on Windows: pictures, the Arc A-series (Windows uses Level Zero for every Arc, `i915` is a
 Linux driver), two cards, and the Docker path. WSL2 with an Arc has been used by one tester (the B580 row above), but
 setup cannot detect the card there, because it reads `/sys/class/drm`, which WSL2 does not have.

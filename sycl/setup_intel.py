@@ -437,6 +437,8 @@ def to_sycl(cfg: dict, exe: Path, ram: float, keep: dict, vram_gb: float = 0.0, 
     alchemist = driver == "i915" or devid in ALCHEMIST_IDS
     streamed = driver != "i915"                         # the pinned host mirror (xe); i915 has the RAM arena instead
     arena_gb = float(S.MODELS.get(model, {}).get("arena_gb", 0) or 0)
+    ram_need = float(S.MODELS.get(model, {}).get("ram_gb", 0) or 0)
+    arena_ram = max(ram_need, arena_gb + 6.0) if arena_gb else 0.0   # the arena is locked in RAM; 6 GiB stay for Windows, the dense weights and the KV
     if streamed and native and not alchemist and arena_gb and vram_gb:
         # Windows, B-series, and only when the experts do not fit: a pinned mirror read over PCIe on most tokens also
         # starves the draft layer.  Measured on an Arc Pro B60 24 GB (Coder IQ1_M, 8K; report on PR #3607): mirror 14.88
@@ -446,13 +448,19 @@ def to_sycl(cfg: dict, exe: Path, ram: float, keep: dict, vram_gb: float = 0.0, 
         kv_in_vram = 32768 if "--kv-resident" in args else ctx
         room = vram_fit.experts_fit_mib(model, vram_gb, ctx, kv, int(reserve), pf_now, "intel", kv_in_vram)
         if room < arena_gb * 1024:
-            streamed = False
-            if fit_notes is not None:
+            if ram >= arena_ram:
+                streamed = False
+                if fit_notes is not None:
+                    fit_notes.append(
+                        f"{_model_title(model, args) or 'This model'}: its {arena_gb:.1f} GB of experts do not fit this "
+                        f"{vram_gb:.0f} GB card ({room / 1024:.1f} GB is left for them), so they stay in RAM and the CPU "
+                        "computes the ones the cache lacks - 88% faster than reading a pinned mirror over PCIe on a 24 GB "
+                        "Arc (measured) - and drafts 2 tokens per round instead of 4, which loses 18% on that path")
+            elif fit_notes is not None:
                 fit_notes.append(
                     f"{_model_title(model, args) or 'This model'}: its {arena_gb:.1f} GB of experts do not fit this "
-                    f"{vram_gb:.0f} GB card ({room / 1024:.1f} GB is left for them), so they stay in RAM and the CPU "
-                    "computes the ones the cache lacks - 88% faster than reading a pinned mirror over PCIe on a 24 GB "
-                    "Arc (measured) - and drafts 2 tokens per round instead of 4, which loses 18% on that path")
+                    f"{vram_gb:.0f} GB card, and this {ram:.0f} GB PC cannot hold them in RAM ({arena_ram:.0f} GB needed "
+                    "for the arena): keeping the pinned mirror, which is slower on such a card but needs less memory")
     if driver == "i915":
         # Arc A-series on i915 (the A750): the experts load into an ordinary RAM arena and the CPU computes the ones
         # the card does not hold; the n-gram table is kept in RAM (setup's rotational-disk rule) and no mirror is built.
