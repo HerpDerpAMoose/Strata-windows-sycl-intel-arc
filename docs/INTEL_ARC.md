@@ -306,9 +306,15 @@ cache hit rate 94-96% (one prompt, one warm-up, three requests, medians). Setup 
 (B-series): `vram_fit.experts_fit_mib()` compares the room left for the experts with the model's `arena_gb`, and a
 model that does not fit uses the arena and drafts 2 tokens per round instead of 4 (`--spec 4` cost 18% on that path on
 the B60). The B70 with Coder IQ1_M at 256K leaves 26.5 GB for 23.4 GB of experts, so its config is byte-identical to
-the previous generator (checked at 256K and 32K). Linux and the A-series keep their tested paths. Tokens were not
-compared one by one between the two paths: the CPU and the GPU round differently, as the engine's own near-tie note
-says.
+the previous generator (checked at 256K and 32K). Linux and the A-series keep their tested paths.
+
+Token-for-token, the two paths are not the same, and the arena is not repeatable within one session. With the same
+`--spec 2` on both (a native IQ pack refuses less) and greedy decoding: prompt A was byte-identical in all three
+repeats on the mirror, identical across the paths in the first two, and the arena's third repeat diverged at character
+174; prompts B and C gave the same answers with different wording (prose against a numbered list). That is the
+near-tie rounding the engine already documents, amplified by the cache: the arena computes some experts on the CPU,
+the mirror computes all of them on the GPU, and which experts the cache holds changes as a session goes on. The speed
+is the trade: +60% on the B70 and +88% on the B60.
 
 What has **not** been run on Windows: pictures, the Arc A-series (Windows uses Level Zero for every Arc, `i915` is a
 Linux driver), two cards, and the Docker path. WSL2 with an Arc has been used by one tester (the B580 row above), but
