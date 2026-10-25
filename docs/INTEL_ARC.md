@@ -269,6 +269,15 @@ bit-identical), and `ple_parity` cannot open the Q2_0 fixture it names by defaul
 IQ1_M PLE shard it reports 0 failures. A request through `serve/server.py` on this build answered normally (32 tokens,
 42.6 tok/s decode on a cold cache). The model was not re-benchmarked on 0.1.48.1.
 
+**0.1.51 (0.2.6, 2026-10-25).** Rebuilt against 0.2.6: 234 targets, 0 errors, 51 executables, `strata.exe --version`
+prints `strata 0.1.51`; `positioned_file_test` passes and 37 of 39 model-free parity tests pass (the two known ones:
+the grouped-MoE difference, worst 7.91e-08 of sum|term|, and `ple_parity`'s missing Q2_0 fixture). The benchmark suite
+against this 256K serving configuration (prefill 2048, 512 MiB reserve, all 12,288 experts resident) measured chat
+decode 62.6 tok/s (59.3-94.2, n=9), an agent session of six turns 69.2 (58.3-84.0, n=15) with 69.2% of each turn's
+prompt from the cache, and prompts of 4K / 16K / 32K at 1,086 / 1,192 / 1,175 tok/s. Long-context retrieval found the
+code at 36.7K, 89.2K, 149.2K, 200.9K and 231.2K tokens (1,132 down to 822 tok/s). The full report is
+`bench/results/2026-10-25-community-r-arc-tm-pro-b70-qwen3-8-flash-next-coder-iq1-m`.
+
 **Two settings that bite on a 24 GB card** (measured by an Arc Pro B60 owner, 2026-10-24). `--vram-reserve-mib` below
 about 1024 moves the card's memory out from under the engine: decode fell from 36.3 to 3.76 tok/s at 512, and the
 700 MiB default is already near the edge there. `--prefill 8192` helps only with `--prefill-borrow` and below about
