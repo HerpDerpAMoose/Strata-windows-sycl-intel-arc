@@ -5,6 +5,9 @@
   </picture>
 </p>
 
+<h3 align="center">This is the Windows SYCL for Intel Arc B580 Fork of Strata</h3>
+<p align="center">You may have to edit build_windows.bat to point it to your local directory install of Llama.cpp if the Git Clone fails when running START-HERE.bat</p>
+
 <h3 align="center">Run powerful AI on your own computer.</h3>
 <p align="center">Chat, code and work with images, locally.</p>
 
