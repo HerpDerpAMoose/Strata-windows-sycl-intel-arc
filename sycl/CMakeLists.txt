@@ -198,9 +198,7 @@ if(STRATA_NATIVE_EXPERTS)
   else()
     include(FetchContent)
     FetchContent_Declare(strata_llamacpp
-      GIT_REPOSITORY https://github.com/ggml-org/llama.cpp.git
-      GIT_TAG 3cf03257f219afbe7334045ff7c6a06ac68c627d
-      GIT_SHALLOW FALSE)
+      URL https://github.com/ggml-org/llama.cpp/archive/3cf03257f219afbe7334045ff7c6a06ac68c627d.tar.gz)
     FetchContent_GetProperties(strata_llamacpp)
     if(NOT strata_llamacpp_POPULATED)
       FetchContent_Populate(strata_llamacpp)
