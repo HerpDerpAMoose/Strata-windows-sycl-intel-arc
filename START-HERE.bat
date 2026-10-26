@@ -45,7 +45,27 @@ exit /b 1
 set "PYTHONNOUSERSITE=1"
 set "PYTHONHOME="
 set "PYTHONPATH="
-"python\python.exe" setup.py %*
+set "PY_EXEC=python\python.exe"
+goto execute
+
+:run
+set "PY_EXEC=.venv\Scripts\python.exe"
+goto execute
+
+:execute
+rem Default fallback is generic setup.py
+set "TARGET_SETUP=setup.py"
+
+rem Check for Intel Arc / B580
+powershell -NoProfile -Command "if (Get-CimInstance Win32_VideoController | Where-Object { $_.Name -match 'Intel.*(Arc|Graphics)' }) { exit 0 } else { exit 1 }" >nul 2>&1
+if not errorlevel 1 (
+    if exist "sycl\setup_intel.py" (
+        echo  Intel GPU detected. Using sycl\setup_intel.py ...
+        set "TARGET_SETUP=sycl\setup_intel.py"
+    )
+)
+
+"%PY_EXEC%" %TARGET_SETUP% %*
 if errorlevel 1 pause
 exit /b
 
