@@ -9,6 +9,8 @@
 <p align="center">With 32gigs of DDR4 RAM and a page file the Intel B580 is Capable of running Gyro-S</p>
 <p align="center">This is a branch of a fork that took initial code changes to function, any errors may be the result of fine tuning this branch specifically for the B580.</p>
 <p align="center">Other Intel Arc cards should still work via the installer.</p>
+<p align="center">The contribution information has been left untouched, please consider checking out the original repo as this is mostly intended for Intel Arc users on windows.</p>
+
 <h3 align="center">Run powerful AI on your own computer.</h3>
 <p align="center">Chat, code and work with images, locally.</p>
 
