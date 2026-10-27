@@ -6,8 +6,9 @@
 </p>
 
 <h3 align="center">This is the Windows SYCL for Intel Arc B580 Fork of Strata</h3>
-<p align="center">You may have to edit build_windows.bat to point it to your local directory install of Llama.cpp if the Git Clone fails when running START-HERE.bat</p>
-
+<p align="center">With 32gigs of DDR4 RAM and a page file the Intel B580 is Capable of running Gyro-S</p>
+<p align="center">This is a branch of a fork that took initial code changes to function, any errors may be the result of fine tuning this branch specifically for the B580.</p>
+<p align="center">Other Intel Arc cards should still work via the installer.</p>
 <h3 align="center">Run powerful AI on your own computer.</h3>
 <p align="center">Chat, code and work with images, locally.</p>
 
