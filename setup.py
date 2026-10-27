@@ -7011,6 +7011,8 @@ def _start(cfg_path: Path, port: int | None, gpu: int | list | None = None, open
                       and amd_problem(x) is None), None)
             if g is not None:
                 ok(f"GPU: {g['name']} ({g['vram_gb']:.0f} GB, AMD)")
+    elif WIN and cfg.get("backend") == "sycl":
+        found = []                                     # the Intel path: no CUDA probe (nvidia-smi / Pascal detection) on this port
     else:
         found = gpus()
         global OLD_GPUS                                # Pascal / Volta: named on this start, or this model's CUDA 12 engine
